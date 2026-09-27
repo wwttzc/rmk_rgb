@@ -158,10 +158,15 @@ impl HitTracker {
         self.count += 1;
     }
 
-    /// Age every hit, QMK's `rgb_task_timers`. Entries that would overflow the
-    /// 16-bit tick are dropped from the count, exactly as the C does.
+    /// Age every hit, QMK's `rgb_task_timers`.
+    ///
+    /// Entries whose tick could not take the delta are dropped from the count,
+    /// exactly as the C does — including the way C captures the count before
+    /// the loop and never compacts the ring, so one pass that overflows an
+    /// entry can drop several.
     pub fn age(&mut self, delta_ms: u32) {
-        for index in 0..self.count as usize {
+        let count = self.count as usize;
+        for index in 0..count {
             if (u16::MAX as u32).wrapping_sub(delta_ms) < self.tick[index] as u32 {
                 self.count -= 1;
                 continue;
@@ -401,5 +406,21 @@ mod tests {
         // the entry from the count instead of letting it wrap.
         tracker.age(10_000);
         assert_eq!(tracker.count, 0);
+    }
+
+    /// QMK bounds its ageing loop by the count it read before looping, so one
+    /// pass that overflows an entry drops every entry it inspected, not just the
+    /// first. Four hits aged past the range therefore leave an empty ring.
+    #[test]
+    fn one_ageing_pass_drops_every_entry_it_cannot_age() {
+        let mut tracker = HitTracker::new();
+        for led in 0..4 {
+            tracker.record(led, 0, 0);
+        }
+        tracker.age(60_000);
+        assert_eq!(tracker.count, 4, "all four took the first delta");
+
+        tracker.age(10_000);
+        assert_eq!(tracker.count, 0, "none of them can take the second");
     }
 }

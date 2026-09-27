@@ -105,7 +105,13 @@ pub(crate) async fn process_set(report: &mut ViaReport) {
         }
         DIRECT_FASTSET => {
             let first = LittleEndian::read_u16(&args[0..2]);
-            let count = (args[2] as usize).min(DIRECT_LEDS_PER_PACKET);
+            let count = args[2] as usize;
+            // The packet has room for three colour bytes per LED after its
+            // three header bytes, and Vial drops the whole packet when the count
+            // does not fit rather than painting part of it.
+            if count * 3 > args.len() - 3 {
+                return;
+            }
             let mut colours = [Hsv::default(); DIRECT_LEDS_PER_PACKET];
             for (index, colour) in colours.iter_mut().enumerate().take(count) {
                 *colour = Hsv::new(args[3 + index * 3], args[4 + index * 3], args[5 + index * 3]);
@@ -118,10 +124,8 @@ pub(crate) async fn process_set(report: &mut ViaReport) {
 
 /// Answer a `CustomSave` packet, which is Vial's SAVE button.
 ///
-/// VIA's generic save carries no channel id, so that is what it is recognised
-/// by; the C original calls into the lighting save unconditionally.
-pub(crate) async fn process_save(report: &ViaReport) {
-    if report.output_data[1] == 0 {
-        lighting::save().await;
-    }
+/// Vial's own handler ignores the packet contents, so this does too: whatever
+/// changed the lighting state is what gets written.
+pub(crate) async fn process_save(_report: &ViaReport) {
+    lighting::save().await;
 }

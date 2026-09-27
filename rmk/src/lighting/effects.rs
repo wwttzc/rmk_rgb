@@ -555,6 +555,9 @@ fn pixel_rain(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
 fn pixel_flow(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
     let count = ctx.cfg.points.len();
     if ctx.init {
+        // QMK blanks the chain first, so a LED this effect never touches does
+        // not keep the previous effect's colour.
+        frame.fill(Rgb::BLACK);
         for led in 0..count {
             ctx.state.pixel_flow[led] = if ctx.state.rand.random8() & 2 != 0 {
                 Rgb::BLACK
@@ -682,7 +685,9 @@ fn reactive_splash(ctx: &mut EffectCtx, frame: &mut [Rgb], shape: ReactiveShape,
             let tick = scale16by8(hits.tick[slot], speed_factor);
             hsv = match shape {
                 ReactiveShape::Wide => {
-                    let effect = (tick + dist as u16 * 5).min(255) as u8;
+                    // C computes this in `int` and stores it in a `uint16_t`, so
+                    // it wraps rather than saturating before the clamp.
+                    let effect = tick.wrapping_add((dist as u16).wrapping_mul(5)).min(255) as u8;
                     Hsv {
                         v: qadd8(hsv.v, 255 - effect),
                         ..hsv
@@ -691,7 +696,7 @@ fn reactive_splash(ctx: &mut EffectCtx, frame: &mut [Rgb], shape: ReactiveShape,
                 ReactiveShape::Cross => {
                     let dx = (dx.unsigned_abs() * 16).min(255);
                     let dy = (dy.unsigned_abs() * 16).min(255);
-                    let effect = (tick + dist as u16 + dx.min(dy)).min(255) as u8;
+                    let effect = tick.wrapping_add(dist as u16).wrapping_add(dx.min(dy)).min(255) as u8;
                     Hsv {
                         v: qadd8(hsv.v, 255 - effect),
                         ..hsv

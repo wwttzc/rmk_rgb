@@ -495,7 +495,9 @@ mod tests {
     static POINTS: [(u8, u8); 2] = [(0, 0), (224, 64)];
     static FLAGS: [u8; 2] = [4, 4];
     static MATRIX: [Option<(u8, u8)>; 2] = [Some((0, 0)), Some((1, 1))];
-    static MODES: [u16; 2] = [2, 6];
+    /// Direct control, solid colour and breathing: every mode these cases
+    /// select has to be one the keycodes can step to, as `rgb.toml` guarantees.
+    static MODES: [u16; 3] = [1, 2, 6];
     static CFG: LightingConfig = LightingConfig {
         max_brightness: 128,
         frame_ms: 16,
@@ -620,13 +622,17 @@ mod tests {
             assert_eq!(snapshot().await.unwrap().hsv.v, CFG.max_brightness);
 
             // The mode keycodes step through what `rgb.toml` enabled, and wrap.
-            assert_eq!(snapshot().await.unwrap().mode, CFG.default_mode);
+            // Pin the starting effect first: the engine's state is process-wide,
+            // so another case may have left a different one selected.
+            set_mode_and_colour(Effect::SolidColor.id(), 128, Hsv::new(0, 255, 128)).await;
+            let start_mode = snapshot().await.unwrap().mode;
+            assert_eq!(start_mode, Effect::SolidColor.id());
             drain(LightAction::RgbModeForward).await;
             let forward = snapshot().await.unwrap().mode;
-            assert_ne!(forward, CFG.default_mode, "the step leaves the current effect");
+            assert_ne!(forward, start_mode, "the step leaves the current effect");
             assert!(CFG.modes.contains(&forward), "{forward} is not an enabled effect");
             drain(LightAction::RgbModeReverse).await;
-            assert_eq!(snapshot().await.unwrap().mode, CFG.default_mode);
+            assert_eq!(snapshot().await.unwrap().mode, start_mode);
 
             // A backlight keycode is not the RGB matrix's business.
             let speed = snapshot().await.unwrap().speed;
@@ -647,6 +653,29 @@ mod tests {
             drain(LightAction::RgbHui).await;
             render(&mut frame, 1200).await;
             assert_ne!(frame[0], Rgb::BLACK, "a hue keycode must not wipe the heatmap");
+        });
+    }
+
+    /// Vial's direct control paints the chain itself, one run of LEDs per
+    /// packet, and the engine renders exactly what was painted.
+    #[test]
+    fn direct_control_paints_the_leds_it_is_given() {
+        crate::test_support::test_block_on(async {
+            start(&CFG).await;
+            set_enabled(true).await;
+            set_mode_and_colour(Effect::Direct.id(), 128, Hsv::new(0, 255, 128)).await;
+
+            // One LED, at full brightness, which the ceiling then clamps.
+            set_direct_colours(1, &[Hsv::new(85, 255, 255)]).await;
+
+            let mut frame = [Rgb::new(9, 9, 9); 2];
+            render(&mut frame, 1000).await;
+            assert_eq!(frame[0], Rgb::BLACK, "a LED nobody painted is dark");
+            assert_eq!(
+                frame[1],
+                Rgb::new(0, CFG.max_brightness, 0),
+                "the painted LED is green at the ceiling"
+            );
         });
     }
 }
