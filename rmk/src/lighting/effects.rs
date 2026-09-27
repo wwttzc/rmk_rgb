@@ -934,3 +934,125 @@ fn pixel_fractal(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
         ctx.state.fractal_wait_timer = ctx.timer + interval;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two LEDs, one matrix row, far enough apart that a spread effect cannot
+    /// reach from one to the other.
+    static POINTS: [(u8, u8); 2] = [(0, 32), (224, 32)];
+    static FLAGS: [u8; 2] = [4, 4];
+    static MATRIX: [Option<(u8, u8)>; 2] = [Some((0, 0)), Some((0, 1))];
+    static MODES: [u16; 2] = [2, 31];
+    static CFG: LightingConfig = LightingConfig {
+        max_brightness: 255,
+        frame_ms: 16,
+        timeout_ms: 0,
+        center: (112, 32),
+        hue_steps: 8,
+        sat_steps: 16,
+        val_steps: 16,
+        speed_steps: 16,
+        react_on_keyup: false,
+        default_on: true,
+        default_mode: 2,
+        default_hue: 0,
+        default_sat: 255,
+        default_val: 255,
+        default_speed: 128,
+        default_flags: 255,
+        modes: &MODES,
+        vial_modes: &MODES,
+        points: &POINTS,
+        flags: &FLAGS,
+        matrix: &MATRIX,
+        matrix_rows: 1,
+        matrix_cols: 2,
+    };
+
+    fn build_ctx<'a>(state: &'a mut EffectState, hsv: Hsv, init: bool) -> EffectCtx<'a> {
+        EffectCtx {
+            cfg: &CFG,
+            hsv,
+            speed: 128,
+            flags: 255,
+            timer: 1000,
+            init,
+            state,
+        }
+    }
+
+    #[test]
+    fn solid_colour_paints_every_led() {
+        let mut state = EffectState::new();
+        let mut frame = [Rgb::BLACK; 2];
+        let mut ctx = build_ctx(&mut state, Hsv::new(0, 255, 255), true);
+        render(Effect::SolidColor, &mut ctx, &mut frame);
+        assert_eq!(frame, [Rgb::new(255, 0, 0), Rgb::new(255, 0, 0)]);
+    }
+
+    #[test]
+    fn a_reactive_hit_lights_its_led_and_then_fades() {
+        let mut state = EffectState::new();
+        state.hits.record(0, POINTS[0].0, POINTS[0].1);
+        let mut frame = [Rgb::BLACK; 2];
+        let mut ctx = build_ctx(&mut state, Hsv::new(0, 255, 255), false);
+        render(Effect::SolidReactiveSimple, &mut ctx, &mut frame);
+        assert_eq!(frame[0], Rgb::new(255, 0, 0), "the hit LED is at full brightness");
+        assert_eq!(frame[1], Rgb::BLACK, "the LED that was not hit stays dark");
+
+        // Three seconds later the same hit has faded out completely.
+        let mut aged = EffectState::new();
+        aged.hits.record(0, POINTS[0].0, POINTS[0].1);
+        aged.hits.age(3000);
+        let mut frame = [Rgb::BLACK; 2];
+        let mut ctx = build_ctx(&mut aged, Hsv::new(0, 255, 255), false);
+        render(Effect::SolidReactiveSimple, &mut ctx, &mut frame);
+        assert_eq!(frame, [Rgb::BLACK; 2]);
+    }
+
+    #[test]
+    fn a_press_heats_its_key_and_renders() {
+        let mut state = EffectState::new();
+        typing_heatmap_key(&CFG, &mut state, 0, 0);
+        assert_eq!(state.frame_buffer[0][0], HEATMAP_INCREASE_STEP);
+        assert_eq!(
+            state.frame_buffer[0][1], 0,
+            "224 units away is outside the 40-unit spread"
+        );
+
+        let mut frame = [Rgb::BLACK; 2];
+        // Not an init frame: the heat was added between frames, which is when
+        // the firmware feeds key events in.
+        let mut ctx = build_ctx(&mut state, Hsv::new(0, 255, 128), false);
+        render(Effect::TypingHeatmap, &mut ctx, &mut frame);
+        assert_ne!(frame[0], Rgb::BLACK, "a hot key lights up");
+        assert_eq!(frame[1], Rgb::BLACK);
+    }
+
+    #[test]
+    fn digital_rain_survives_a_brightness_of_zero() {
+        let mut state = EffectState::new();
+        let mut frame = [Rgb::new(9, 9, 9); 2];
+        // QMK divides by the brightness here, so zero would be a division by
+        // zero rather than a dark chain.
+        let mut ctx = build_ctx(&mut state, Hsv::new(0, 255, 0), true);
+        render(Effect::DigitalRain, &mut ctx, &mut frame);
+        assert_eq!(frame, [Rgb::BLACK; 2]);
+    }
+
+    #[test]
+    fn pixel_fractal_mirrors_one_half_onto_the_other() {
+        let mut state = EffectState::new();
+        let mut frame = [Rgb::BLACK; 2];
+        // Force the left half lit, then let the effect draw it.
+        state.fractal[0][0] = true;
+        let mut ctx = build_ctx(&mut state, Hsv::new(0, 255, 255), false);
+        // The pattern is only redrawn once the wait timer allows it.
+        ctx.state.fractal_wait_timer = 0;
+        render(Effect::PixelFractal, &mut ctx, &mut frame);
+        assert_eq!(frame[0], Rgb::new(255, 0, 0), "the lit left half is drawn");
+        assert_eq!(frame[1], Rgb::new(255, 0, 0), "and mirrored onto the right half");
+    }
+}
