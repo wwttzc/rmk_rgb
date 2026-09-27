@@ -10,7 +10,7 @@
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use rmk_config::resolved::hardware::{ChipModel, ColorOrder, RgbConfig};
+use rmk_config::resolved::hardware::{ChipModel, ChipSeries, ColorOrder, RgbConfig};
 use rmk_types::lighting;
 
 use super::input_device::Initializer;
@@ -344,5 +344,39 @@ mod tests {
     fn the_default_effect_resolves_to_its_id() {
         let rgb = chain(&[("breathing", true)], "breathing");
         assert_eq!(resolve_default_mode(&rgb, &enabled_modes(&rgb)), 6);
+    }
+
+    fn esp32s3() -> ChipModel {
+        ChipModel {
+            series: ChipSeries::Esp32,
+            chip: "esp32s3".to_string(),
+            board: None,
+        }
+    }
+
+    /// The expansion is only ever compiled on the target, so nothing here would
+    /// catch a malformed token stream until CI does. Parsing it as Rust does.
+    #[test]
+    fn the_generated_code_parses_as_rust() {
+        let rgb = chain(&[("breathing", true), ("typing_heatmap", true)], "breathing");
+        let (init, processor) = expand_rgb_config(&esp32s3(), &rgb);
+        syn::parse2::<syn::Block>(quote! { { #init } }).expect("the lighting initialization must be valid Rust");
+        assert_eq!(processor.var_name.to_string(), "rgb_processor");
+    }
+
+    /// Point `RMK_RGB_CHECK_KEYBOARD_TOML` at a real `keyboard.toml` to expand
+    /// its `rgb.toml` too, which is how a board's driver code is checked before
+    /// it reaches CI.
+    #[test]
+    fn a_real_board_configuration_expands() {
+        let Ok(path) = std::env::var("RMK_RGB_CHECK_KEYBOARD_TOML") else {
+            return;
+        };
+        let config = rmk_config::KeyboardTomlConfig::new_from_toml_path(&path);
+        let hardware = config.hardware().expect("the hardware configuration must resolve");
+        let rgb = hardware.rgb.expect("rgb.toml must be next to keyboard.toml");
+        let (init, _) = expand_rgb_config(&hardware.chip, &rgb);
+        println!("{init}");
+        syn::parse2::<syn::Block>(quote! { { #init } }).expect("the lighting initialization must be valid Rust");
     }
 }
