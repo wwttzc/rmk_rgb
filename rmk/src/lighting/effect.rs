@@ -54,7 +54,7 @@ effects! {
     (Off, "off", 0),
     (Direct, "direct", 1),
     (SolidColor, "solid_color", 2),
-    (AlphasMods, "alpha_mods", 3),
+    (AlphasMods, "alphas_mods", 3),
     (GradientUpDown, "gradient_up_down", 4),
     (GradientLeftRight, "gradient_left_right", 5),
     (Breathing, "breathing", 6),
@@ -310,6 +310,9 @@ impl EffectCtx<'_> {
     /// Distance from the keyboard centre.
     pub fn dist(&self, led: usize) -> u8 {
         let (dx, dy) = self.dx_dy(led);
+        // C squares the int16 differences in `int`, so a chain wider than the
+        // i16 square root does not overflow here.
+        let (dx, dy) = (dx as i32, dy as i32);
         crate::lighting::lib8tion::sqrt16((dx * dx + dy * dy) as u16)
     }
 

@@ -62,7 +62,7 @@ pub static EFFECTS: &[EffectInfo] = &[
     effect("off", 0, IMPLEMENTED),
     effect("direct", 1, IMPLEMENTED | NEEDS_LAYOUT),
     effect("solid_color", 2, IMPLEMENTED),
-    effect("alpha_mods", 3, IMPLEMENTED | NEEDS_LAYOUT),
+    effect("alphas_mods", 3, IMPLEMENTED | NEEDS_LAYOUT),
     effect("gradient_up_down", 4, IMPLEMENTED | NEEDS_LAYOUT),
     effect("gradient_left_right", 5, IMPLEMENTED | NEEDS_LAYOUT),
     effect("breathing", 6, IMPLEMENTED),

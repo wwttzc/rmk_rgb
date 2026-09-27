@@ -116,7 +116,7 @@ panel and paint one LED at a time.
 |---|---|---|
 | `solid_color` | 2 | Always compiled in |
 | `direct` | 1 | Vial's Direct Control painting |
-| `alpha_mods` | 3 | Modifier LEDs take a shifted hue |
+| `alphas_mods` | 3 | Modifier LEDs take a shifted hue |
 | `gradient_up_down`, `gradient_left_right` | 4, 5 | Position-based |
 | `breathing` | 6 | |
 | `band_sat`, `band_val` | 7, 8 | Position-based |
