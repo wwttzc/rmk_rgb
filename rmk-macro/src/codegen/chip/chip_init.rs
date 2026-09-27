@@ -310,3 +310,74 @@ fn get_ble_addr(hardware: &Hardware, peripheral_id: Option<usize>) -> TokenStrea
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A minimal esp32s3 keyboard, with BLE switched on or off.
+    fn esp32s3_hardware(ble: bool) -> Hardware {
+        let dir = std::env::temp_dir().join(format!(
+            "rmk-chip-init-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("keyboard.toml");
+        std::fs::write(
+            &path,
+            format!(
+                "[keyboard]\n\
+                 name = \"Test\"\n\
+                 vendor_id = 0x4c4b\n\
+                 product_id = 0x4643\n\
+                 chip = \"esp32s3\"\n\
+                 usb_enable = true\n\
+                 \n\
+                 [matrix]\n\
+                 row_pins = [\"GPIO5\"]\n\
+                 col_pins = [\"GPIO9\"]\n\
+                 \n\
+                 [layout]\n\
+                 rows = 1\n\
+                 cols = 1\n\
+                 \n\
+                 [ble]\n\
+                 enabled = {ble}\n"
+            ),
+        )
+        .unwrap();
+
+        let config = rmk_config::KeyboardTomlConfig::new_from_toml_path(&path);
+        std::fs::remove_dir_all(&dir).ok();
+        config.hardware().expect("the test configuration must resolve")
+    }
+
+    /// The generated init is only ever compiled for the chip, so nothing here
+    /// would notice a malformed statement until a board build does.
+    #[test]
+    fn the_esp_init_parses_as_rust() {
+        for ble in [false, true] {
+            let init = chip_init_default(&esp32s3_hardware(ble), None);
+            syn::parse2::<syn::Block>(quote! { { #init } })
+                .unwrap_or_else(|error| panic!("with ble = {ble}: {error}"));
+        }
+    }
+
+    /// The BLE connector is the only thing in the init that needs `esp-radio`,
+    /// so a keyboard with BLE off must not depend on it.
+    #[test]
+    fn the_esp_init_only_reaches_for_esp_radio_when_ble_is_on() {
+        let without = chip_init_default(&esp32s3_hardware(false), None).to_string();
+        assert!(!without.contains("esp_radio"), "BLE off still pulls esp-radio in: {without}");
+        assert!(!without.contains("bt_hci"), "BLE off still pulls bt-hci in: {without}");
+        assert!(without.contains("esp_rtos"), "the base initialization is still there");
+
+        let with = chip_init_default(&esp32s3_hardware(true), None).to_string();
+        assert!(with.contains("esp_radio"), "BLE on has to build the connector: {with}");
+        assert!(with.contains("bt_hci"));
+    }
+}
