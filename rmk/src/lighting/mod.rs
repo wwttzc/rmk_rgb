@@ -399,6 +399,8 @@ pub async fn apply_light_action(action: LightAction, pressed: bool) {
         return;
     }
 
+    let (was_enabled, was_mode) = (state.enabled, state.mode);
+
     match action {
         LightAction::RgbTog => state.enabled = !state.enabled,
         LightAction::RgbModeForward => state.mode = step_mode(cfg, state.mode, true),
@@ -433,7 +435,9 @@ pub async fn apply_light_action(action: LightAction, pressed: bool) {
         _ => return,
     }
 
-    state.init_pending = true;
+    // QMK re-initializes an effect only when the effect or the on/off state
+    // changed, so a colour or speed keycode must not, say, wipe the heatmap.
+    state.init_pending = state.enabled != was_enabled || state.mode != was_mode;
     let bytes = state.to_bytes();
     drop(guard);
 
@@ -628,6 +632,21 @@ mod tests {
             let speed = snapshot().await.unwrap().speed;
             apply_light_action(LightAction::BacklightOn, true).await;
             assert_eq!(snapshot().await.unwrap().speed, speed);
+
+            // A value keycode must not re-initialize the effect either: QMK only
+            // does that when the effect or the on/off state changes, and a
+            // heatmap that forgot its heat on every brightness key would be
+            // unusable.
+            set_mode_and_colour(Effect::TypingHeatmap.id(), 128, Hsv::new(0, 255, 128)).await;
+            let mut frame = [Rgb::BLACK; 2];
+            render(&mut frame, 1000).await; // the effect's init frame
+            on_key_event(0, 0, true).await;
+            render(&mut frame, 1100).await;
+            assert_ne!(frame[0], Rgb::BLACK, "the pressed key is hot");
+
+            drain(LightAction::RgbHui).await;
+            render(&mut frame, 1200).await;
+            assert_ne!(frame[0], Rgb::BLACK, "a hue keycode must not wipe the heatmap");
         });
     }
 }
