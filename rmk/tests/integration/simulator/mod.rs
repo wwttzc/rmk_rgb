@@ -31,6 +31,8 @@ use rmk::channel::BLE_REPORT_CHANNEL as REPORT_CHANNEL;
 use rmk::channel::USB_REPORT_CHANNEL as REPORT_CHANNEL;
 #[cfg(feature = "host")]
 use rmk::config::RmkConfig;
+#[cfg(feature = "host")]
+use rmk::config::VialConfig;
 #[cfg(feature = "storage")]
 use rmk::config::StorageConfig;
 use rmk::config::{BehaviorConfig, Hand, PositionalConfig};
@@ -202,6 +204,11 @@ pub struct SimKeyboard {
 }
 
 impl SimKeyboard {
+    /// The keyboard id every real firmware carries, so that the Vial reply that
+    /// hands it out can be exercised here too.
+    #[cfg(feature = "host")]
+    pub(crate) const VIAL_KEYBOARD_ID: [u8; 8] = [0xB9, 0xBC, 0x09, 0xB2, 0x9D, 0x37, 0x4C, 0xEA];
+
     pub fn builder<const ROW: usize, const COL: usize, const NUM_LAYER: usize>(
         keymap: [[[KeyAction; COL]; ROW]; NUM_LAYER],
     ) -> SimKeyboardBuilder<ROW, COL, NUM_LAYER, 0> {
@@ -211,7 +218,12 @@ impl SimKeyboard {
             behavior_config: BehaviorConfig::default(),
             positional_config: PositionalConfig::default(),
             #[cfg(feature = "host")]
-            rmk_config: RmkConfig::default(),
+            rmk_config: RmkConfig {
+                // An empty id would make the Vial keyboard-id reply panic, and a
+                // real firmware always has one from its generated `vial.json`.
+                vial_config: VialConfig::new(&Self::VIAL_KEYBOARD_ID, &[], &[]),
+                ..RmkConfig::default()
+            },
         }
     }
 

@@ -67,6 +67,28 @@ fn set(subcommand: u8) -> [u8; REPORT] {
 }
 
 #[test]
+fn the_keyboard_announces_that_it_speaks_lighting() {
+    test_block_on(async {
+        lighting::start(&CFG).await;
+        let mut keyboard = SimKeyboard::builder([[[k!(A), k!(B)]]]).build().await;
+
+        // Vial's keyboard-id reply carries a flag in byte 12 that says the
+        // lighting protocol is supported, which is how a tool knows to ask.
+        // Bytes 0..4 hold the protocol version and 4..12 the keyboard id.
+        let mut request = [0; REPORT];
+        request[0] = ViaCommand::Vial as u8;
+        request[1] = rmk_types::protocol::vial::VialCommand::GetKeyboardId as u8;
+        let mut reply = [0; REPORT];
+        reply[0..4].copy_from_slice(&rmk_types::protocol::vial::VIAL_PROTOCOL_VERSION.to_le_bytes());
+        reply[4..12].copy_from_slice(&SimKeyboard::VIAL_KEYBOARD_ID);
+        reply[12] = 1;
+        keyboard.host_exchange(request, reply);
+
+        keyboard.run().await;
+    });
+}
+
+#[test]
 fn the_panel_reads_what_rgb_toml_declares() {
     test_block_on(async {
         lighting::start(&CFG).await;

@@ -24,6 +24,12 @@ pub(crate) async fn process_vial<'a>(
             // Returns vial protocol version + vial keyboard id
             LittleEndian::write_u32(&mut report.input_data[0..4], VIAL_PROTOCOL_VERSION);
             report.input_data[4..12].clone_from_slice(vial_config.vial_keyboard_id);
+            // Vial's flag for "this keyboard answers the lighting protocol",
+            // which tools read here instead of parsing vial.json.
+            #[cfg(feature = "rgb_matrix")]
+            {
+                report.input_data[12] = 1;
+            }
             debug!("Vial return: {:?}", report.input_data);
         }
         VialCommand::GetSize => {
