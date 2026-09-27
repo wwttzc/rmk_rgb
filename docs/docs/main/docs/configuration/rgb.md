@@ -102,7 +102,7 @@ data pin. Each entry describes the key that LED sits under.
 | Key | Meaning |
 |---|---|
 | `matrix` | The key's electrical position, `[row, col]`, as in `keyboard.toml`'s `[layout]`. Omit it for a LED with no key, such as underglow. |
-| `x`, `y` | The key's position in QMK's coordinate space: `x` spans `0..=224` and `y` spans `0..=64`. The animations assume that space. |
+| `x`, `y` | The key's position in QMK's coordinate space, `x = 224 / (cols - 1) * col` and `y = 64 / (rows - 1) * row`, so the top-left key is `{0, 0}` and the bottom-right is `{224, 64}`. A key spanning two cells takes the centre of both, so its own row or column index is not its position. |
 | `flags` | QMK's `LED_FLAG_*` mask. `4` (`LED_FLAG_KEYLIGHT`) for a key backlight. |
 
 The order is the one thing that cannot be derived from the schematic: it is how
