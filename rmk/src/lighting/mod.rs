@@ -393,6 +393,12 @@ pub async fn apply_light_action(action: LightAction, pressed: bool) {
     let cfg = active.cfg;
     let state = &mut active.state;
 
+    // Every QMK lighting keycode funnels through `mode` or `sethsv`, and both
+    // return early while the chain is off. Only the toggle works when it is dark.
+    if !state.enabled && action != LightAction::RgbTog {
+        return;
+    }
+
     match action {
         LightAction::RgbTog => state.enabled = !state.enabled,
         LightAction::RgbModeForward => state.mode = step_mode(cfg, state.mode, true),
@@ -554,7 +560,6 @@ mod tests {
     fn the_effect_follows_the_enable_state_and_the_timeout() {
         let mut state = LightingState::new(&CFG);
         assert_eq!(state.current_effect(&CFG, 0), Effect::Off, "off by default");
-
         state.enabled = true;
         assert_eq!(state.current_effect(&CFG, 0), Effect::Breathing);
 
@@ -566,5 +571,63 @@ mod tests {
         state.last_activity_ms = 500;
         assert_eq!(state.current_effect(&timed, 1400), Effect::Breathing);
         assert_eq!(state.current_effect(&timed, 1600), Effect::Off, "idle too long");
+    }
+
+    /// Every lighting keycode writes the same state the host and `rgb.toml`
+    /// write, so what one does shows up in the next snapshot.
+    #[test]
+    fn lighting_keycodes_move_the_state() {
+        crate::test_support::test_block_on(async {
+            start(&CFG).await;
+            // Each keycode persists its change, and no storage task drains that
+            // queue here, so clear it before the next one fills the channel.
+            let drain = |action| async move {
+                apply_light_action(action, true).await;
+                crate::test_support::clear_flash_channel();
+            };
+
+            set_enabled(false).await;
+            let dark = snapshot().await.unwrap();
+            assert!(!dark.enabled, "the test configuration starts dark");
+
+            // QMK ignores the value keycodes while the chain is off.
+            drain(LightAction::RgbHui).await;
+            assert_eq!(snapshot().await.unwrap().hsv.h, dark.hsv.h);
+            drain(LightAction::RgbModeForward).await;
+            assert_eq!(snapshot().await.unwrap().mode, dark.mode);
+
+            drain(LightAction::RgbTog).await;
+            assert!(snapshot().await.unwrap().enabled);
+
+            let hue = snapshot().await.unwrap().hsv.h;
+            drain(LightAction::RgbHui).await;
+            assert_eq!(snapshot().await.unwrap().hsv.h, hue.wrapping_add(CFG.hue_steps));
+            drain(LightAction::RgbHud).await;
+            assert_eq!(snapshot().await.unwrap().hsv.h, hue);
+
+            // A release does nothing, so a held key does not repeat.
+            apply_light_action(LightAction::RgbHui, false).await;
+            assert_eq!(snapshot().await.unwrap().hsv.h, hue);
+
+            // Brightness stops at the ceiling even when the key is hammered.
+            for _ in 0..8 {
+                drain(LightAction::RgbVai).await;
+            }
+            assert_eq!(snapshot().await.unwrap().hsv.v, CFG.max_brightness);
+
+            // The mode keycodes step through what `rgb.toml` enabled, and wrap.
+            assert_eq!(snapshot().await.unwrap().mode, CFG.default_mode);
+            drain(LightAction::RgbModeForward).await;
+            let forward = snapshot().await.unwrap().mode;
+            assert_ne!(forward, CFG.default_mode, "the step leaves the current effect");
+            assert!(CFG.modes.contains(&forward), "{forward} is not an enabled effect");
+            drain(LightAction::RgbModeReverse).await;
+            assert_eq!(snapshot().await.unwrap().mode, CFG.default_mode);
+
+            // A backlight keycode is not the RGB matrix's business.
+            let speed = snapshot().await.unwrap().speed;
+            apply_light_action(LightAction::BacklightOn, true).await;
+            assert_eq!(snapshot().await.unwrap().speed, speed);
+        });
     }
 }
