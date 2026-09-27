@@ -48,6 +48,7 @@ const STATE_BYTES: usize = 8;
 pub const STORAGE_SLOT: u8 = 0xF0;
 
 /// Board lighting constants, generated from `rgb.toml`.
+#[derive(Clone, Copy)]
 pub struct LightingConfig {
     /// Ceiling for every brightness the host or a keycode can set, as QMK's
     /// `RGB_MATRIX_MAXIMUM_BRIGHTNESS`.
@@ -476,5 +477,96 @@ pub async fn save() {
         let bytes = active.state.to_bytes();
         drop(guard);
         crate::storage::store_user_data(STORAGE_SLOT, &bytes).await.ok();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static POINTS: [(u8, u8); 2] = [(0, 0), (224, 64)];
+    static FLAGS: [u8; 2] = [4, 4];
+    static MATRIX: [Option<(u8, u8)>; 2] = [Some((0, 0)), Some((1, 1))];
+    static MODES: [u16; 2] = [2, 6];
+    static CFG: LightingConfig = LightingConfig {
+        max_brightness: 128,
+        frame_ms: 16,
+        timeout_ms: 0,
+        center: (112, 32),
+        hue_steps: 8,
+        sat_steps: 16,
+        val_steps: 16,
+        speed_steps: 16,
+        react_on_keyup: false,
+        default_on: false,
+        default_mode: 6,
+        default_hue: 0,
+        default_sat: 255,
+        default_val: 128,
+        default_speed: 127,
+        default_flags: 255,
+        modes: &MODES,
+        vial_modes: &MODES,
+        points: &POINTS,
+        flags: &FLAGS,
+        matrix: &MATRIX,
+        matrix_rows: 2,
+        matrix_cols: 2,
+    };
+
+    #[test]
+    fn the_stored_state_round_trips() {
+        let mut state = LightingState::new(&CFG);
+        state.enabled = true;
+        state.mode = 2;
+        state.speed = 42;
+        state.hsv = Hsv::new(1, 2, 3);
+
+        let bytes = state.to_bytes();
+        let mut restored = LightingState::new(&CFG);
+        restored.restore_from(&bytes, &CFG);
+
+        assert!(restored.enabled, "the stored on/off wins over the default");
+        assert_eq!(restored.mode, 2);
+        assert_eq!(restored.speed, 42);
+        assert_eq!(restored.hsv, Hsv::new(1, 2, 3));
+        assert!(restored.init_pending, "a restored effect starts on its init frame");
+    }
+
+    #[test]
+    fn stored_bytes_that_do_not_decode_leave_the_defaults_alone() {
+        let mut state = LightingState::new(&CFG);
+        state.restore_from(&[1, 2, 3], &CFG);
+        assert!(!state.enabled, "a short blob is ignored");
+
+        // Mode 99 is not an effect this firmware has.
+        state.restore_from(&[1, 99, 0, 0, 0, 0, 0, 0], &CFG);
+        assert!(!state.enabled, "an unknown mode is ignored");
+        assert_eq!(state.mode, CFG.default_mode);
+    }
+
+    #[test]
+    fn a_stored_brightness_above_the_ceiling_is_clamped() {
+        let mut state = LightingState::new(&CFG);
+        state.restore_from(&[1, 2, 0, 100, 10, 20, 250, 255], &CFG);
+        assert_eq!(state.hsv.v, CFG.max_brightness);
+    }
+
+    #[test]
+    fn the_effect_follows_the_enable_state_and_the_timeout() {
+        let mut state = LightingState::new(&CFG);
+        assert_eq!(state.current_effect(&CFG, 0), Effect::Off, "off by default");
+
+        state.enabled = true;
+        assert_eq!(state.current_effect(&CFG, 0), Effect::Breathing);
+
+        // A timeout only matters once one is configured.
+        let mut timed = CFG;
+        timed.timeout_ms = 1000;
+        let mut state = LightingState::new(&timed);
+        state.enabled = true;
+        state.last_activity_ms = 500;
+        assert_eq!(state.current_effect(&timed, 1400), Effect::Breathing);
+        assert_eq!(state.current_effect(&timed, 1600), Effect::Off, "idle too long");
     }
 }

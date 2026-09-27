@@ -14,6 +14,8 @@ mod simulator;
 
 #[cfg(feature = "_ble")]
 mod ble_profile;
+#[cfg(feature = "rgb_matrix")]
+mod lighting;
 #[cfg(feature = "rynk")]
 mod rynk;
 #[cfg(feature = "vial")]
