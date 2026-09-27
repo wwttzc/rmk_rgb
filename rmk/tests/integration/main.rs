@@ -14,7 +14,8 @@ mod simulator;
 
 #[cfg(feature = "_ble")]
 mod ble_profile;
-#[cfg(feature = "rgb_matrix")]
+// The case drives VIA packets, so it needs the host session that answers them.
+#[cfg(all(feature = "rgb_matrix", feature = "vial"))]
 mod lighting;
 #[cfg(feature = "rynk")]
 mod rynk;
