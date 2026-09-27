@@ -76,9 +76,13 @@ pub struct LedConfig {
     /// Electrical matrix position `[row, col]`. Omit for a LED that has no key,
     /// such as underglow; such a LED is unreachable from key events.
     pub matrix: Option<[u8; 2]>,
-    /// Horizontal position, in QMK's `0..=224` coordinate space.
+    /// Horizontal position, in the board's own coordinate space. QMK recommends
+    /// `0..=224`, but the space is only a convention: the effects that sweep the
+    /// range use the layout's own extent, and those that measure from the centre
+    /// use `[rgb_matrix] center_point`.
     pub x: u8,
-    /// Vertical position, in QMK's `0..=64` coordinate space.
+    /// Vertical position, in the board's own coordinate space. QMK recommends
+    /// `0..=64`; see `x`.
     pub y: u8,
     /// LED flags (`LED_FLAG_*` in QMK). Defaults to no flags.
     #[serde(default)]
@@ -146,7 +150,8 @@ pub struct RgbMatrixConfig {
     #[serde(default)]
     pub react_on_keyup: bool,
     /// Geometric centre of the keyboard, used by pinwheel, spiral and beacon
-    /// effects (`RGB_MATRIX_CENTER`).
+    /// effects (`RGB_MATRIX_CENTER`). It is in the same space as the layout's
+    /// `x`/`y`, so it is only `[112, 32]` for a board that uses QMK's box.
     #[serde(default = "default_center_point")]
     pub center_point: [u8; 2],
     /// Step applied by each hue keycode (`RGB_MATRIX_HUE_STEP`).
@@ -238,13 +243,6 @@ impl crate::KeyboardTomlConfig {
         }
 
         for (index, led) in matrix.layout.iter().enumerate() {
-            if led.x > 224 || led.y > 64 {
-                return Err(format!(
-                    "rgb.toml: [[rgb_matrix.layout]] #{index} is at ({}, {}), outside QMK's 0..=224 by 0..=64 \
-                     coordinate space that the animations assume",
-                    led.x, led.y
-                ));
-            }
             if let (Some([row, col]), Some(layout)) = (led.matrix, self.layout.as_ref())
                 && (row >= layout.rows || col >= layout.cols)
             {

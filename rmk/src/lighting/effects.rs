@@ -140,17 +140,22 @@ fn alpha_mods(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
 
 fn gradient_up_down(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
     let scale = scale8(64, ctx.speed);
+    // QMK sweeps four hue steps across the y range; here the range is the board's
+    // own, so a board taller than QMK's 0..64 keeps the same four steps.
+    let extent = ctx.cfg.points.iter().map(|point| point.1).max().unwrap_or(64).max(1) as u32;
     each_led(ctx.cfg, ctx.flags, frame, |led| {
-        // y spans 0..64, so this maps onto 0..4 hue steps.
-        hsv_to_rgb(shift_hue(ctx.hsv, scale as i32 * (ctx.cfg.points[led].1 >> 4) as i32))
+        let steps = (ctx.cfg.points[led].1 as u32 * 4 / extent) as i32;
+        hsv_to_rgb(shift_hue(ctx.hsv, scale as i32 * steps))
     });
 }
 
 fn gradient_left_right(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
     let scale = scale8(64, ctx.speed);
+    // …and seven hue steps across the x range, for the same reason.
+    let extent = ctx.cfg.points.iter().map(|point| point.0).max().unwrap_or(224).max(1) as u32;
     each_led(ctx.cfg, ctx.flags, frame, |led| {
-        // x spans 0..224, so this maps onto 0..7 hue steps.
-        hsv_to_rgb(shift_hue(ctx.hsv, (scale as i32 * ctx.cfg.points[led].0 as i32) >> 5))
+        let steps = (ctx.cfg.points[led].0 as u32 * 7 / extent) as i32;
+        hsv_to_rgb(shift_hue(ctx.hsv, scale as i32 * steps))
     });
 }
 
@@ -1059,5 +1064,44 @@ mod tests {
         render(Effect::PixelFractal, &mut ctx, &mut frame);
         assert_eq!(frame[0], Rgb::new(255, 0, 0), "the lit left half is drawn");
         assert_eq!(frame[1], Rgb::new(255, 0, 0), "and mirrored onto the right half");
+    }
+
+    /// The same board in a taller space: 37 units per key cell, which is what the
+    /// desk_hub PCB uses, against QMK's 0..224 by 0..64.
+    static TALL_POINTS: [(u8, u8); 2] = [(19, 19), (130, 204)];
+    static TALL_MATRIX: [Option<(u8, u8)>; 2] = [Some((0, 0)), Some((5, 3))];
+    static TALL_CFG: LightingConfig = LightingConfig {
+        center: (74, 111),
+        points: &TALL_POINTS,
+        matrix: &TALL_MATRIX,
+        matrix_rows: 6,
+        matrix_cols: 4,
+        ..CFG
+    };
+
+    /// The gradients sweep a fixed number of hue steps across the board, so they
+    /// have to measure the range from the layout rather than assume QMK's box.
+    #[test]
+    fn the_gradients_sweep_the_layout_range_not_a_fixed_box() {
+        for effect in [Effect::GradientUpDown, Effect::GradientLeftRight] {
+            let mut qmk_state = EffectState::new();
+            let mut qmk_frame = [Rgb::BLACK; 2];
+            let mut ctx = build_ctx(&mut qmk_state, Hsv::new(0, 255, 255), true);
+            render(effect, &mut ctx, &mut qmk_frame);
+
+            let mut tall_state = EffectState::new();
+            let mut tall_frame = [Rgb::BLACK; 2];
+            let mut ctx = EffectCtx {
+                cfg: &TALL_CFG,
+                ..build_ctx(&mut tall_state, Hsv::new(0, 255, 255), true)
+            };
+            render(effect, &mut ctx, &mut tall_frame);
+
+            assert_eq!(
+                tall_frame[1], qmk_frame[1],
+                "{effect:?} should reach the far end of a taller board, not part of it"
+            );
+            assert_ne!(tall_frame[0], tall_frame[1], "{effect:?} still spans the range");
+        }
     }
 }

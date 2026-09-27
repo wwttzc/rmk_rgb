@@ -62,7 +62,7 @@ flags = 4
 | `timeout` | `0` | QMK's `RGB_MATRIX_TIMEOUT`: milliseconds without a key press after which the chain goes dark. `0` never times out. |
 | `led_flush_limit` | `16` | QMK's `RGB_MATRIX_LED_FLUSH_LIMIT`: milliseconds between frames. |
 | `react_on_keyup` | `false` | QMK's `RGB_MATRIX_KEYRELEASES`: reactive effects answer releases instead of presses. Needs a reactive effect enabled. |
-| `center_point` | `[112, 32]` | QMK's `RGB_MATRIX_CENTER`, the centre the pinwheel, spiral and beacon effects measure from. |
+| `center_point` | `[112, 32]` | QMK's `RGB_MATRIX_CENTER`: the centre the pinwheel, spiral and beacon effects measure from. It is in the same space as the layout's `x`/`y`, so `[112, 32]` is only right when the box below is QMK's. |
 | `hue_steps`, `sat_steps`, `val_steps`, `speed_steps` | `8`, `16`, `16`, `16` | QMK's `RGB_MATRIX_*_STEP`: how far one keycode moves a value. |
 
 QMK keys that RMK has no behaviour for are rejected rather than ignored:
@@ -102,7 +102,7 @@ data pin. Each entry describes the key that LED sits under.
 | Key | Meaning |
 |---|---|
 | `matrix` | The key's electrical position, `[row, col]`, as in `keyboard.toml`'s `[layout]`. Omit it for a LED with no key, such as underglow. |
-| `x`, `y` | The key's position in QMK's coordinate space, `x = 224 / (cols - 1) * col` and `y = 64 / (rows - 1) * row`, so the top-left key is `{0, 0}` and the bottom-right is `{224, 64}`. A key spanning two cells takes the centre of both, so its own row or column index is not its position. |
+| `x`, `y` | The key's position in the board's own coordinate space. QMK recommends `x = 224 / (cols - 1) * col` and `y = 64 / (rows - 1) * row`, which puts the top-left key at `{0, 0}` and the bottom-right at `{224, 64}`, and its own boards fill exactly that box. Any space works as long as every LED uses the same one: the effects that sweep a range measure it from the layout, and those that measure from a centre use `center_point`. A key spanning two cells takes the centre of both, so its own row or column index is not its position. |
 | `flags` | QMK's `LED_FLAG_*` mask. `4` (`LED_FLAG_KEYLIGHT`) for a key backlight. |
 
 The order is the one thing that cannot be derived from the schematic: it is how
