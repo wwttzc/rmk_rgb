@@ -606,3 +606,32 @@ fn rgb_toml_needs_both_sections() {
 
     std::fs::remove_dir_all(path.parent().unwrap()).ok();
 }
+
+/// QMK keys this port has no behaviour for are refused by name rather than
+/// silently ignored, so a copy-pasted QMK configuration says what is missing.
+#[test]
+fn rgb_toml_names_the_qmk_keys_it_cannot_honour() {
+    for key in [
+        "led_process_limit = 4",
+        "sleep = true",
+        "split_count = [1, 18]",
+        "flag_steps = [255, 5, 2, 0]",
+    ] {
+        let path = write_rgb_case(
+            "rgb-unsupported",
+            &CHAIN_TOML.replace("driver = \"ws2812\"", &format!("driver = \"ws2812\"\n{key}")),
+        );
+        let result = std::panic::catch_unwind(|| {
+            let config = KeyboardTomlConfig::new_from_toml_path(&path);
+            rejection(&config)
+        });
+        let message = panic_message(result.unwrap_err());
+        let name = key.split(' ').next().unwrap();
+        assert!(
+            message.contains(name) && message.contains("unknown field"),
+            "`{key}` should be refused by name, got: {message}"
+        );
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+}
