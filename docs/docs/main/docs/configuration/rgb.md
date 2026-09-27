@@ -166,3 +166,10 @@ the reason `react_on_keyup` exists.
   brightness of four; the port stops there rather than dividing by zero.
 - Keycodes and Vial writes are persisted to the same user storage slot
   (`0xF0`); QMK uses its EEPROM block.
+- Hits are aged once per frame rather than on every main-loop pass, so a hit
+  recorded mid-frame reads up to one frame older than it would in QMK.
+- A Vial mode id this firmware does not render leaves the current effect alone;
+  QMK falls back to its first effect, or to nothing if that is not compiled in.
+  Vial's own panel only ever sends ids it read from the keyboard.
+- A stored state whose mode does not exist — an effect removed from `rgb.toml`
+  after it was selected — is ignored rather than restoring a dark chain.
