@@ -158,11 +158,16 @@ fn a_mode_write_reaches_the_engine_and_comes_back() {
         keyboard.host_exchange(get(GET_MODE), read);
 
         // Id zero is Vial's OFF: the panel turns the chain off rather than
-        // selecting a mode. The colour and speed it was given stay put, as they
-        // do in QMK, so only the mode reads back as none.
-        keyboard.host_exchange(set(SET_MODE), set(SET_MODE));
+        // selecting a mode. QMK's speed setter has no enable guard, so the speed
+        // the panel sent lands even now, while the colour it sent does not.
+        let mut off = set(SET_MODE);
+        off[4] = 33;
+        off[5] = 99;
+        off[6] = 99;
+        off[7] = 99;
+        keyboard.host_exchange(off, off);
         let mut off_read = get(GET_MODE);
-        off_read[4] = 200;
+        off_read[4] = 33;
         off_read[5] = 10;
         off_read[6] = 20;
         off_read[7] = 30;

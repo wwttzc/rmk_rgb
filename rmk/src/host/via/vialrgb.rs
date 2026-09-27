@@ -95,7 +95,10 @@ pub(crate) async fn process_set(report: &mut ViaReport) {
         SET_MODE => {
             let mode = LittleEndian::read_u16(&args[0..2]);
             if mode == 0 {
+                // Vial sends the speed with every mode, and QMK's speed setter has
+                // no enable guard, so it lands even when this turns the chain off.
                 lighting::set_enabled(false).await;
+                lighting::set_speed(args[2]).await;
                 return;
             }
             // Vial expects the panel to be usable as soon as it picks an

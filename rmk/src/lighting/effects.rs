@@ -679,8 +679,10 @@ fn reactive_splash(ctx: &mut EffectCtx, frame: &mut [Rgb], shape: ReactiveShape,
         let mut hsv = Hsv { v: 0, ..base };
         for slot in start..hits.count as usize {
             let (x, y) = ctx.cfg.points[led];
-            let dx = x as i16 - hits.x[slot] as i16;
-            let dy = y as i16 - hits.y[slot] as i16;
+            // C keeps the geometry in `int`, so the squares add up as i32 rather
+            // than overflowing i16 on a chain wider than ~180 units.
+            let dx = x as i32 - hits.x[slot] as i32;
+            let dy = y as i32 - hits.y[slot] as i32;
             let dist = sqrt16((dx * dx + dy * dy) as u16);
             let tick = scale16by8(hits.tick[slot], speed_factor);
             hsv = match shape {
@@ -694,8 +696,8 @@ fn reactive_splash(ctx: &mut EffectCtx, frame: &mut [Rgb], shape: ReactiveShape,
                     }
                 }
                 ReactiveShape::Cross => {
-                    let dx = (dx.unsigned_abs() * 16).min(255);
-                    let dy = (dy.unsigned_abs() * 16).min(255);
+                    let dx = (dx.unsigned_abs() * 16).min(255) as u16;
+                    let dy = (dy.unsigned_abs() * 16).min(255) as u16;
                     let effect = tick.wrapping_add(dist as u16).wrapping_add(dx.min(dy)).min(255) as u8;
                     Hsv {
                         v: qadd8(hsv.v, 255 - effect),
@@ -708,7 +710,7 @@ fn reactive_splash(ctx: &mut EffectCtx, frame: &mut [Rgb], shape: ReactiveShape,
                         effect = 255;
                     }
                     Hsv {
-                        h: base.h.wrapping_add((dy as i32 / 4) as u8),
+                        h: base.h.wrapping_add((dy / 4) as u8),
                         v: qadd8(hsv.v, 255 - effect as u8),
                         ..hsv
                     }

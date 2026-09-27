@@ -108,9 +108,10 @@ struct LightingState {
     flags: u8,
     speed: u8,
     last_activity_ms: u32,
-    /// Set when the effect or the on/off state changed, so the next frame runs
-    /// the effect's init branch — QMK's `rgb_effect_params.init`.
-    init_pending: bool,
+    /// The effect the last frame rendered, QMK's `rgb_last_effect`. A frame whose
+    /// effect differs from it — a mode change, a toggle, or the chain coming back
+    /// from the idle timeout — runs the effect's init branch.
+    last_effect: Option<Effect>,
     /// The mask the frame buffer was rendered with; a change clears it, as QMK
     /// does when `rgb_effect_params.flags` changes.
     rendered_flags: u8,
@@ -125,7 +126,7 @@ impl LightingState {
             flags: cfg.default_flags,
             speed: cfg.default_speed,
             last_activity_ms: 0,
-            init_pending: true,
+            last_effect: None,
             rendered_flags: cfg.default_flags,
         }
     }
@@ -157,24 +158,30 @@ impl LightingState {
     }
 
     /// Apply a stored state, ignoring bytes that do not decode.
-    fn restore_from(&mut self, bytes: &[u8], cfg: &LightingConfig) {
+    ///
+    /// A slot this firmware wrote always names an effect, because Vial's OFF only
+    /// clears the enable bit, so a zero mode means the slot is blank or was
+    /// written by something else — QMK rewrites the defaults for it rather than
+    /// starting dark.
+    fn restore_from(&mut self, bytes: &[u8]) {
         if bytes.len() < STATE_BYTES {
             return;
         }
         let mode = u16::from_le_bytes([bytes[1], bytes[2]]);
-        if Effect::from_id(mode).is_none() {
+        if mode == 0 || Effect::from_id(mode).is_none() {
             return;
         }
         self.enabled = bytes[0] != 0;
         self.mode = mode;
         self.speed = bytes[3];
+        // QMK copies its stored config verbatim; the brightness ceiling only
+        // clamps what `sethsv` and Vial are given.
         self.hsv = Hsv {
             h: bytes[4],
             s: bytes[5],
-            v: bytes[6].min(cfg.max_brightness),
+            v: bytes[6],
         };
         self.flags = bytes[7];
-        self.init_pending = true;
     }
 }
 
@@ -220,8 +227,11 @@ pub async fn render(frame: &mut [Rgb], now_ms: u32) {
     active.effects.hits = active.effects.hits_buffer;
 
     let effect = active.state.current_effect(active.cfg, now_ms);
-    let init = active.state.init_pending;
-    active.state.init_pending = false;
+    // QMK's `init = effect != rgb_last_effect || enable != rgb_last_enable`. The
+    // effect here is the effective one, so a chain that comes back after the idle
+    // timeout re-initializes its effect rather than resuming it mid-pattern.
+    let init = active.state.last_effect != Some(effect);
+    active.state.last_effect = Some(effect);
 
     if active.state.rendered_flags != active.state.flags {
         active.state.rendered_flags = active.state.flags;
@@ -295,11 +305,18 @@ pub async fn snapshot() -> Option<Snapshot> {
 
 /// Turn the chain on or off, as QMK's `rgb_matrix_toggle`.
 pub async fn set_enabled(enabled: bool) {
-    if let Some(active) = ACTIVE.lock().await.as_mut()
-        && active.state.enabled != enabled
-    {
+    if let Some(active) = ACTIVE.lock().await.as_mut() {
         active.state.enabled = enabled;
-        active.state.init_pending = true;
+    }
+}
+
+/// Set the animation speed, which Vial sends with every mode change.
+///
+/// QMK's speed setter has no enable guard, unlike `sethsv`, so this applies while
+/// the chain is off too.
+pub async fn set_speed(speed: u8) {
+    if let Some(active) = ACTIVE.lock().await.as_mut() {
+        active.state.speed = speed;
     }
 }
 
@@ -319,7 +336,6 @@ pub async fn set_mode_and_colour(mode: u16, speed: u8, hsv: Hsv) {
             && effect != Effect::Off
         {
             active.state.mode = mode;
-            active.state.init_pending = true;
         }
         active.state.speed = speed;
         active.state.hsv = Hsv {
@@ -399,8 +415,6 @@ pub async fn apply_light_action(action: LightAction, pressed: bool) {
         return;
     }
 
-    let (was_enabled, was_mode) = (state.enabled, state.mode);
-
     match action {
         LightAction::RgbTog => state.enabled = !state.enabled,
         LightAction::RgbModeForward => state.mode = step_mode(cfg, state.mode, true),
@@ -435,9 +449,6 @@ pub async fn apply_light_action(action: LightAction, pressed: bool) {
         _ => return,
     }
 
-    // QMK re-initializes an effect only when the effect or the on/off state
-    // changed, so a colour or speed keycode must not, say, wipe the heatmap.
-    state.init_pending = state.enabled != was_enabled || state.mode != was_mode;
     let bytes = state.to_bytes();
     drop(guard);
 
@@ -469,7 +480,7 @@ pub async fn restore() {
         let stored = crate::storage::read_user_data(STORAGE_SLOT).await;
         let mut guard = ACTIVE.lock().await;
         if let (Some(bytes), Some(active)) = (stored, guard.as_mut()) {
-            active.state.restore_from(&bytes, active.cfg);
+            active.state.restore_from(&bytes);
         }
     }
 }
@@ -534,32 +545,44 @@ mod tests {
 
         let bytes = state.to_bytes();
         let mut restored = LightingState::new(&CFG);
-        restored.restore_from(&bytes, &CFG);
+        restored.restore_from(&bytes);
 
         assert!(restored.enabled, "the stored on/off wins over the default");
         assert_eq!(restored.mode, 2);
         assert_eq!(restored.speed, 42);
         assert_eq!(restored.hsv, Hsv::new(1, 2, 3));
-        assert!(restored.init_pending, "a restored effect starts on its init frame");
+        assert!(
+            restored.last_effect.is_none(),
+            "nothing has rendered yet, so the restored effect starts on its init frame"
+        );
     }
 
     #[test]
     fn stored_bytes_that_do_not_decode_leave_the_defaults_alone() {
         let mut state = LightingState::new(&CFG);
-        state.restore_from(&[1, 2, 3], &CFG);
+        state.restore_from(&[1, 2, 3]);
         assert!(!state.enabled, "a short blob is ignored");
 
         // Mode 99 is not an effect this firmware has.
-        state.restore_from(&[1, 99, 0, 0, 0, 0, 0, 0], &CFG);
+        state.restore_from(&[1, 99, 0, 0, 0, 0, 0, 0]);
         assert!(!state.enabled, "an unknown mode is ignored");
+        assert_eq!(state.mode, CFG.default_mode);
+
+        // A slot this firmware wrote always names an effect, so a zero mode means
+        // the slot is blank and QMK would rewrite the defaults for it.
+        state.restore_from(&[1, 0, 0, 100, 10, 20, 250, 255]);
+        assert!(!state.enabled, "a blank slot is ignored");
         assert_eq!(state.mode, CFG.default_mode);
     }
 
     #[test]
-    fn a_stored_brightness_above_the_ceiling_is_clamped() {
+    fn a_stored_brightness_is_restored_as_it_was() {
         let mut state = LightingState::new(&CFG);
-        state.restore_from(&[1, 2, 0, 100, 10, 20, 250, 255], &CFG);
-        assert_eq!(state.hsv.v, CFG.max_brightness);
+        state.restore_from(&[1, 2, 0, 100, 10, 20, 250, 255]);
+        assert_eq!(
+            state.hsv.v, 250,
+            "the ceiling only clamps what sethsv and Vial are handed, as in QMK"
+        );
     }
 
     #[test]
@@ -577,6 +600,29 @@ mod tests {
         state.last_activity_ms = 500;
         assert_eq!(state.current_effect(&timed, 1400), Effect::Breathing);
         assert_eq!(state.current_effect(&timed, 1600), Effect::Off, "idle too long");
+    }
+
+    /// The effect that comes back after the idle timeout has to run its init
+    /// branch, or a stateful effect resumes mid-pattern — QMK's init compares the
+    /// effective effect with the one the last frame rendered.
+    #[test]
+    fn an_effect_returning_from_the_timeout_re_initializes() {
+        let mut timed = CFG;
+        timed.timeout_ms = 1000;
+        let mut state = LightingState::new(&timed);
+        state.enabled = true;
+        state.mode = Effect::TypingHeatmap.id();
+
+        // A frame during the idle period renders nothing, and that is what the
+        // engine records as the last effect.
+        let idle = state.current_effect(&timed, 2000);
+        assert_eq!(idle, Effect::Off);
+        state.last_effect = Some(idle);
+
+        state.last_activity_ms = 1990;
+        let back = state.current_effect(&timed, 2000);
+        assert_eq!(back, Effect::TypingHeatmap);
+        assert_ne!(state.last_effect, Some(back), "the returning effect re-initializes");
     }
 
     /// Every lighting keycode writes the same state the host and `rgb.toml`
