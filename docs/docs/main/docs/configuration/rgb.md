@@ -130,14 +130,24 @@ panel and paint one LED at a time.
 | `dual_beacon`, `rainbow_beacon`, `rainbow_pinwheels` | 21, 22, 23 | |
 | `raindrops`, `jellybean_raindrops` | 24, 25 | |
 | `hue_breathing`, `hue_pendulum`, `hue_wave` | 26, 27, 28 | |
-| `pixel_rain` | 43 | |
+| `typing_heatmap` | 29 | A press heats its key and its neighbours, decaying every 25 ms |
+| `digital_rain` | 30 | Rain falling down the matrix |
+| `solid_reactive_simple` | 31 | Each hit lights up and fades |
+| `solid_reactive` | 32 | Each hit shifts the hue and fades |
+| `solid_reactive_wide`, `solid_reactive_multiwide` | 33, 34 | The hit spreads by distance; the `multi` twin lets every remembered hit contribute |
+| `solid_reactive_cross`, `solid_reactive_multicross` | 35, 36 | The spread follows rows and columns |
+| `solid_reactive_nexus`, `solid_reactive_multinexus` | 37, 38 | The spread carries a hue offset along `y` |
+| `splash`, `multisplash` | 39, 40 | Colour travels outwards from where the key was hit |
+| `solid_splash`, `solid_multisplash` | 41, 42 | Brightness travels outwards instead |
+| `pixel_rain` | 43 | Single LEDs light at random |
+| `pixel_fractal` | 44 | A random pattern on the left half, mirrored to the right |
 | `pixel_flow` | — | QMK only; not in Vial's list |
 | `starlight_smooth`, `starlight`, `starlight_dual_sat`, `starlight_dual_hue` | — | QMK only |
 | `flower_blooming`, `riverflow` | — | QMK only |
 
-Not ported yet: `typing_heatmap`, `digital_rain`, the twelve
-`solid_reactive_*`/`splash` effects, and `pixel_fractal`. They need key events or
-the matrix framebuffer.
+Every effect QMK's RGB Matrix ships is implemented. The reactive and heatmap
+effects need key events, which the firmware feeds in from the matrix; they are
+the reason `react_on_keyup` exists.
 
 ## How this differs from QMK
 
@@ -150,5 +160,9 @@ the matrix framebuffer.
   the pinwheel and spiral effects have the same discontinuity QMK has.
 - The CIE1931 gamma curve is not applied, matching a QMK build that does not
   define `USE_CIE1931_CURVE`.
+- `digital_rain` picks its drops with lib8tion's generator instead of libc's
+  `rand()`. The effect is random either way, and this keeps it reproducible.
+- QMK's `digital_rain` divides by the brightness, which is zero below a
+  brightness of four; the port stops there rather than dividing by zero.
 - Keycodes and Vial writes are persisted to the same user storage slot
   (`0xF0`); QMK uses its EEPROM block.

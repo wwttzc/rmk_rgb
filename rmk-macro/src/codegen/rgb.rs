@@ -28,6 +28,20 @@ pub(crate) fn expand_rgb_config(chip: &ChipModel, rgb: &RgbConfig) -> (TokenStre
         );
     }
 
+    // The heatmap and rain effects keep one byte per matrix cell in fixed-size
+    // statics, so a bigger matrix has nowhere to go.
+    if rgb.matrix_rows as usize > lighting::MAX_MATRIX_ROWS || rgb.matrix_cols as usize > lighting::MAX_MATRIX_COLS
+    {
+        panic!(
+            "rgb.toml: the keyboard matrix is {}x{}, but the framebuffer effects (typing_heatmap, \
+             digital_rain) support at most {}x{}.",
+            rgb.matrix_rows,
+            rgb.matrix_cols,
+            lighting::MAX_MATRIX_ROWS,
+            lighting::MAX_MATRIX_COLS
+        );
+    }
+
     let led_count = rgb.led_count as usize;
     let points = rgb.layout.iter().map(|led| {
         let (x, y) = (led.x, led.y);
@@ -48,6 +62,8 @@ pub(crate) fn expand_rgb_config(chip: &ChipModel, rgb: &RgbConfig) -> (TokenStre
 
     let (max_brightness, frame_ms, timeout_ms) = (rgb.max_brightness, rgb.frame_ms, rgb.timeout_ms);
     let (center_x, center_y) = (rgb.center[0], rgb.center[1]);
+    let react_on_keyup = rgb.react_on_keyup;
+    let (matrix_rows, matrix_cols) = (rgb.matrix_rows, rgb.matrix_cols);
     let (hue_steps, sat_steps, val_steps, speed_steps) = (
         rgb.hue_steps,
         rgb.sat_steps,
@@ -81,6 +97,7 @@ pub(crate) fn expand_rgb_config(chip: &ChipModel, rgb: &RgbConfig) -> (TokenStre
             sat_steps: #sat_steps,
             val_steps: #val_steps,
             speed_steps: #speed_steps,
+            react_on_keyup: #react_on_keyup,
             default_on: #default_on,
             default_mode: #default_mode,
             default_hue: #default_hue,
@@ -93,6 +110,8 @@ pub(crate) fn expand_rgb_config(chip: &ChipModel, rgb: &RgbConfig) -> (TokenStre
             points: &RGB_POINTS,
             flags: &RGB_FLAGS,
             matrix: &RGB_MATRIX,
+            matrix_rows: #matrix_rows,
+            matrix_cols: #matrix_cols,
         };
         #driver
     };
@@ -285,6 +304,8 @@ mod tests {
                 y: 0,
                 flags: 4,
             }],
+            matrix_rows: 2,
+            matrix_cols: 2,
         }
     }
 
@@ -304,12 +325,6 @@ mod tests {
     #[should_panic(expected = "has no effect called `brerthing`")]
     fn a_misspelled_effect_is_rejected() {
         enabled_modes(&chain(&[("brerthing", true)], "breathing"));
-    }
-
-    #[test]
-    #[should_panic(expected = "cannot render it yet")]
-    fn an_effect_this_port_lacks_is_rejected() {
-        enabled_modes(&chain(&[("typing_heatmap", true)], "solid_color"));
     }
 
     #[test]

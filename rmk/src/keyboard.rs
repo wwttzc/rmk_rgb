@@ -151,10 +151,15 @@ impl Runnable for Keyboard<'_> {
             };
             match event {
                 Some(event) => {
-                    // Lighting counts input activity for its idle timeout, the
-                    // way QMK's `last_input_activity` does.
+                    // Lighting counts input activity for its idle timeout, and
+                    // answers key events for its reactive effects.
                     #[cfg(feature = "rgb_matrix")]
-                    crate::lighting::on_activity(embassy_time::Instant::now().as_millis() as u32).await;
+                    {
+                        crate::lighting::on_activity(embassy_time::Instant::now().as_millis() as u32).await;
+                        if let crate::event::KeyboardEventPos::Key(pos) = event.pos {
+                            crate::lighting::on_key_event(pos.row, pos.col, event.pressed).await;
+                        }
+                    }
                     self.process_inner(event).await
                 }
                 None => self.fire_expired().await,

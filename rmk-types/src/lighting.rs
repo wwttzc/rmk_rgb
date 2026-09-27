@@ -88,22 +88,22 @@ pub static EFFECTS: &[EffectInfo] = &[
     effect("hue_breathing", 26, IMPLEMENTED),
     effect("hue_pendulum", 27, IMPLEMENTED | NEEDS_LAYOUT),
     effect("hue_wave", 28, IMPLEMENTED | NEEDS_LAYOUT),
-    effect("typing_heatmap", 29, NEEDS_MATRIX | REACTIVE | FRAMEBUFFER),
-    effect("digital_rain", 30, NEEDS_MATRIX | FRAMEBUFFER),
-    effect("solid_reactive_simple", 31, REACTIVE),
-    effect("solid_reactive", 32, REACTIVE),
-    effect("solid_reactive_wide", 33, REACTIVE | NEEDS_LAYOUT),
-    effect("solid_reactive_multiwide", 34, REACTIVE | NEEDS_LAYOUT),
-    effect("solid_reactive_cross", 35, REACTIVE | NEEDS_LAYOUT),
-    effect("solid_reactive_multicross", 36, REACTIVE | NEEDS_LAYOUT),
-    effect("solid_reactive_nexus", 37, REACTIVE | NEEDS_LAYOUT),
-    effect("solid_reactive_multinexus", 38, REACTIVE | NEEDS_LAYOUT),
-    effect("splash", 39, REACTIVE | NEEDS_LAYOUT),
-    effect("multisplash", 40, REACTIVE | NEEDS_LAYOUT),
-    effect("solid_splash", 41, REACTIVE | NEEDS_LAYOUT),
-    effect("solid_multisplash", 42, REACTIVE | NEEDS_LAYOUT),
+    effect("typing_heatmap", 29, IMPLEMENTED | NEEDS_MATRIX | REACTIVE | FRAMEBUFFER),
+    effect("digital_rain", 30, IMPLEMENTED | NEEDS_MATRIX | FRAMEBUFFER),
+    effect("solid_reactive_simple", 31, IMPLEMENTED | REACTIVE),
+    effect("solid_reactive", 32, IMPLEMENTED | REACTIVE),
+    effect("solid_reactive_wide", 33, IMPLEMENTED | REACTIVE | NEEDS_LAYOUT),
+    effect("solid_reactive_multiwide", 34, IMPLEMENTED | REACTIVE | NEEDS_LAYOUT),
+    effect("solid_reactive_cross", 35, IMPLEMENTED | REACTIVE | NEEDS_LAYOUT),
+    effect("solid_reactive_multicross", 36, IMPLEMENTED | REACTIVE | NEEDS_LAYOUT),
+    effect("solid_reactive_nexus", 37, IMPLEMENTED | REACTIVE | NEEDS_LAYOUT),
+    effect("solid_reactive_multinexus", 38, IMPLEMENTED | REACTIVE | NEEDS_LAYOUT),
+    effect("splash", 39, IMPLEMENTED | REACTIVE | NEEDS_LAYOUT),
+    effect("multisplash", 40, IMPLEMENTED | REACTIVE | NEEDS_LAYOUT),
+    effect("solid_splash", 41, IMPLEMENTED | REACTIVE | NEEDS_LAYOUT),
+    effect("solid_multisplash", 42, IMPLEMENTED | REACTIVE | NEEDS_LAYOUT),
     effect("pixel_rain", 43, IMPLEMENTED),
-    effect("pixel_fractal", 44, NEEDS_MATRIX),
+    effect("pixel_fractal", 44, IMPLEMENTED | NEEDS_MATRIX),
     // Effects QMK has that Vial's list does not carry, so the panel cannot
     // select them. They are numbered past the Vial range on purpose.
     effect("pixel_flow", 45, IMPLEMENTED),
@@ -117,6 +117,12 @@ pub static EFFECTS: &[EffectInfo] = &[
 
 /// Highest Vial effect id, i.e. the largest id Vial's own table defines.
 pub const LAST_VIAL_ID: u16 = 44;
+
+/// Largest keyboard matrix the framebuffer effects support, such as the typing
+/// heatmap and digital rain. Their buffers are fixed-size statics in the
+/// firmware, so a bigger matrix is refused when the configuration is resolved.
+pub const MAX_MATRIX_ROWS: usize = 16;
+pub const MAX_MATRIX_COLS: usize = 16;
 
 /// Look up an effect by its `rgb.toml` name.
 pub fn effect_by_name(name: &str) -> Option<&'static EffectInfo> {

@@ -63,6 +63,9 @@ pub struct LightingConfig {
     pub sat_steps: u8,
     pub val_steps: u8,
     pub speed_steps: u8,
+    /// Whether reactive effects answer key releases instead of presses, QMK's
+    /// `RGB_MATRIX_KEYRELEASES`.
+    pub react_on_keyup: bool,
     /// State the chain starts in, when nothing is stored yet.
     pub default_on: bool,
     pub default_mode: u16,
@@ -81,6 +84,18 @@ pub struct LightingConfig {
     pub flags: &'static [u8],
     /// Each LED's electrical matrix position, `None` when the LED has no key.
     pub matrix: &'static [Option<(u8, u8)>],
+    /// The keyboard matrix the framebuffer effects iterate over.
+    pub matrix_rows: u8,
+    pub matrix_cols: u8,
+}
+
+impl LightingConfig {
+    /// The LED at a matrix position, QMK's `rgb_matrix_map_row_column_to_led`.
+    ///
+    /// QMK's `matrix_co` is one LED per cell, so the first match is the answer.
+    pub fn led_at(&self, row: u8, col: u8) -> Option<usize> {
+        self.matrix.iter().position(|cell| *cell == Some((row, col)))
+    }
 }
 
 /// The live lighting state.
@@ -195,6 +210,14 @@ pub async fn render(frame: &mut [Rgb], now_ms: u32) {
     let Some(active) = guard.as_mut() else {
         return;
     };
+
+    // QMK's `rgb_task_timers` then `rgb_task_start`: hits age by the time since
+    // the last frame, and the aged set is what effects read this frame.
+    let delta = now_ms.wrapping_sub(active.effects.last_frame_ms);
+    active.effects.last_frame_ms = now_ms;
+    active.effects.hits_buffer.age(delta);
+    active.effects.hits = active.effects.hits_buffer;
+
     let effect = active.state.current_effect(active.cfg, now_ms);
     let init = active.state.init_pending;
     active.state.init_pending = false;
@@ -220,6 +243,31 @@ pub async fn render(frame: &mut [Rgb], now_ms: u32) {
 pub async fn on_activity(now_ms: u32) {
     if let Some(active) = ACTIVE.lock().await.as_mut() {
         active.state.last_activity_ms = now_ms;
+    }
+}
+
+/// A key event, which the reactive effects and the typing heatmap answer.
+///
+/// This is QMK's `rgb_matrix_handle_key_event`: the hit is recorded on press,
+/// or on release when `react_on_keyup` is set, and the heatmap's ingress runs
+/// only while its effect is the selected one.
+pub async fn on_key_event(row: u8, col: u8, pressed: bool) {
+    let mut guard = ACTIVE.lock().await;
+    let Some(active) = guard.as_mut() else {
+        return;
+    };
+    let cfg = active.cfg;
+    let reacts_to = if cfg.react_on_keyup { !pressed } else { pressed };
+    if !reacts_to {
+        return;
+    }
+
+    if let Some(led) = cfg.led_at(row, col) {
+        let (x, y) = cfg.points[led];
+        active.effects.hits_buffer.record(led as u8, x, y);
+    }
+    if active.state.mode == Effect::TypingHeatmap.id() {
+        effects::typing_heatmap_key(cfg, &mut active.effects, row, col);
     }
 }
 

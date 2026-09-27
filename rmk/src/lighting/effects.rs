@@ -17,9 +17,11 @@
 //! `led_process_limit` covers the chain, so per-frame state updates happen
 //! exactly once per frame.
 
+use rmk_types::lighting::{MAX_MATRIX_COLS, MAX_MATRIX_ROWS};
+
 use crate::lighting::color::{Hsv, Rgb, hsv_to_rgb};
-use crate::lighting::effect::{Effect, EffectCtx};
-use crate::lighting::lib8tion::{Rand16, abs8, atan2_8, cos8, qadd8, scale8, scale16by8, sin8};
+use crate::lighting::effect::{Effect, EffectCtx, EffectState};
+use crate::lighting::lib8tion::{Rand16, abs8, atan2_8, cos8, qadd8, qsub8, scale8, scale16by8, sin8, sqrt16};
 use crate::lighting::{LightingConfig, MAX_LEDS};
 
 /// `LED_FLAG_MODIFIER`, the one per-LED flag an effect reads for semantics.
@@ -65,6 +67,21 @@ pub fn render(effect: Effect, ctx: &mut EffectCtx, frame: &mut [Rgb]) {
         Effect::Starlight => starlight(ctx, frame),
         Effect::StarlightDualSat => starlight_dual_sat(ctx, frame),
         Effect::StarlightDualHue => starlight_dual_hue(ctx, frame),
+        Effect::TypingHeatmap => typing_heatmap(ctx, frame),
+        Effect::DigitalRain => digital_rain(ctx, frame),
+        Effect::SolidReactiveSimple => solid_reactive_simple(ctx, frame),
+        Effect::SolidReactive => solid_reactive(ctx, frame),
+        Effect::SolidReactiveWide => reactive_splash(ctx, frame, ReactiveShape::Wide, false),
+        Effect::SolidReactiveMultiwide => reactive_splash(ctx, frame, ReactiveShape::Wide, true),
+        Effect::SolidReactiveCross => reactive_splash(ctx, frame, ReactiveShape::Cross, false),
+        Effect::SolidReactiveMulticross => reactive_splash(ctx, frame, ReactiveShape::Cross, true),
+        Effect::SolidReactiveNexus => reactive_splash(ctx, frame, ReactiveShape::Nexus, false),
+        Effect::SolidReactiveMultinexus => reactive_splash(ctx, frame, ReactiveShape::Nexus, true),
+        Effect::Splash => reactive_splash(ctx, frame, ReactiveShape::Splash, false),
+        Effect::Multisplash => reactive_splash(ctx, frame, ReactiveShape::Splash, true),
+        Effect::SolidSplash => reactive_splash(ctx, frame, ReactiveShape::SolidSplash, false),
+        Effect::SolidMultisplash => reactive_splash(ctx, frame, ReactiveShape::SolidSplash, true),
+        Effect::PixelFractal => pixel_fractal(ctx, frame),
     }
 }
 
@@ -602,4 +619,318 @@ fn riverflow(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
             ..ctx.hsv
         })
     });
+}
+
+// ------------------------------------------------------------- reactive hits
+
+/// QMK's `effect_runner_reactive`: every LED takes the age of the newest hit on
+/// it, scaled by speed, and hands that offset to `f`.
+fn reactive(ctx: &mut EffectCtx, frame: &mut [Rgb], f: impl Fn(Hsv, u16) -> Hsv) {
+    let speed_factor = qadd8(ctx.speed, 1);
+    let max_tick = u16::MAX / speed_factor as u16;
+    let hits = ctx.state.hits;
+    each_led(ctx.cfg, ctx.flags, frame, |led| {
+        let tick = hits.newest_tick(led as u8, max_tick);
+        hsv_to_rgb(f(ctx.hsv, scale16by8(tick, speed_factor)))
+    });
+}
+
+fn solid_reactive_simple(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
+    reactive(ctx, frame, |hsv, offset| Hsv {
+        v: scale8(255 - offset.min(255) as u8, hsv.v),
+        ..hsv
+    });
+}
+
+fn solid_reactive(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
+    reactive(ctx, frame, |hsv, offset| {
+        shift_hue(
+            hsv,
+            scale8(255 - offset.min(255) as u8, 64) as i32,
+        )
+    });
+}
+
+/// Which of QMK's splash-shaped reactive effects to draw.
+#[derive(Clone, Copy)]
+enum ReactiveShape {
+    /// `solid_reactive_wide`
+    Wide,
+    /// `solid_reactive_cross`
+    Cross,
+    /// `solid_reactive_nexus`
+    Nexus,
+    /// `splash`
+    Splash,
+    /// `solid_splash`
+    SolidSplash,
+}
+
+/// QMK's `effect_runner_reactive_splash`.
+///
+/// `multi` picks whether every remembered hit contributes or only the most
+/// recent one, which is the whole difference between each pair of effects.
+fn reactive_splash(ctx: &mut EffectCtx, frame: &mut [Rgb], shape: ReactiveShape, multi: bool) {
+    let hits = ctx.state.hits;
+    let start = if multi { 0 } else { qsub8(hits.count, 1) as usize };
+    let speed_factor = qadd8(ctx.speed, 1);
+    let base = ctx.hsv;
+
+    each_led(ctx.cfg, ctx.flags, frame, |led| {
+        // QMK starts from the configured colour with the brightness at zero and
+        // lets each hit add to it, then scales the result by the brightness.
+        let mut hsv = Hsv { v: 0, ..base };
+        for slot in start..hits.count as usize {
+            let (x, y) = ctx.cfg.points[led];
+            let dx = x as i16 - hits.x[slot] as i16;
+            let dy = y as i16 - hits.y[slot] as i16;
+            let dist = sqrt16((dx * dx + dy * dy) as u16);
+            let tick = scale16by8(hits.tick[slot], speed_factor);
+            hsv = match shape {
+                ReactiveShape::Wide => {
+                    let effect = (tick + dist as u16 * 5).min(255) as u8;
+                    Hsv {
+                        v: qadd8(hsv.v, 255 - effect),
+                        ..hsv
+                    }
+                }
+                ReactiveShape::Cross => {
+                    let dx = (dx.unsigned_abs() * 16).min(255);
+                    let dy = (dy.unsigned_abs() * 16).min(255);
+                    let effect = (tick + dist as u16 + dx.min(dy)).min(255) as u8;
+                    Hsv {
+                        v: qadd8(hsv.v, 255 - effect),
+                        ..hsv
+                    }
+                }
+                ReactiveShape::Nexus => {
+                    let mut effect = tick.wrapping_sub(dist as u16);
+                    if effect > 255 || dist > 72 || (dx.abs() > 8 && dy.abs() > 8) {
+                        effect = 255;
+                    }
+                    Hsv {
+                        h: base.h.wrapping_add((dy as i32 / 4) as u8),
+                        v: qadd8(hsv.v, 255 - effect as u8),
+                        ..hsv
+                    }
+                }
+                ReactiveShape::Splash | ReactiveShape::SolidSplash => {
+                    let effect = tick.wrapping_sub(dist as u16).min(255) as u8;
+                    let hue = if matches!(shape, ReactiveShape::Splash) {
+                        hsv.h.wrapping_add(effect)
+                    } else {
+                        hsv.h
+                    };
+                    Hsv {
+                        h: hue,
+                        v: qadd8(hsv.v, 255 - effect),
+                        ..hsv
+                    }
+                }
+            };
+        }
+        hsv.v = scale8(hsv.v, base.v);
+        hsv_to_rgb(hsv)
+    });
+}
+
+// -------------------------------------------------------------- typing heatmap
+
+/// How much heat a press adds to its own cell, QMK's
+/// `RGB_MATRIX_TYPING_HEATMAP_INCREASE_STEP`.
+const HEATMAP_INCREASE_STEP: u8 = 32;
+/// How far a press spreads heat, in QMK's coordinate units.
+const HEATMAP_SPREAD: u8 = 40;
+/// Ceiling on the heat one neighbour can receive from a single press.
+const HEATMAP_AREA_LIMIT: u8 = 16;
+/// How often all heat is decreased by one, QMK's
+/// `RGB_MATRIX_TYPING_HEATMAP_DECREASE_DELAY_MS`.
+const HEATMAP_DECREASE_DELAY_MS: u32 = 25;
+
+/// Add one key press's heat to the frame buffer, QMK's
+/// `process_rgb_matrix_typing_heatmap`.
+pub(crate) fn typing_heatmap_key(cfg: &LightingConfig, state: &mut EffectState, row: u8, col: u8) {
+    // A key with no LED behind it heats nothing.
+    let Some(source) = cfg.led_at(row, col) else {
+        return;
+    };
+    let (source_x, source_y) = cfg.points[source];
+
+    for cell_row in 0..cfg.matrix_rows {
+        for cell_col in 0..cfg.matrix_cols {
+            let Some(led) = cfg.led_at(cell_row, cell_col) else {
+                continue;
+            };
+            let heat = &mut state.frame_buffer[cell_row as usize][cell_col as usize];
+            if cell_row == row && cell_col == col {
+                *heat = qadd8(*heat, HEATMAP_INCREASE_STEP);
+                continue;
+            }
+            let (x, y) = cfg.points[led];
+            let dx = x as i32 - source_x as i32;
+            let dy = y as i32 - source_y as i32;
+            let distance = sqrt16((dx * dx + dy * dy) as u16);
+            if distance <= HEATMAP_SPREAD {
+                *heat = qadd8(*heat, qsub8(HEATMAP_SPREAD, distance).min(HEATMAP_AREA_LIMIT));
+            }
+        }
+    }
+}
+
+fn typing_heatmap(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
+    if ctx.init {
+        ctx.state.frame_buffer = [[0; MAX_MATRIX_COLS]; MAX_MATRIX_ROWS];
+        frame.fill(Rgb::BLACK);
+    }
+
+    // QMK updates this once per frame rather than once per chunk.
+    let decrease = ctx.timer.wrapping_sub(ctx.state.heatmap_decrease_ms) >= HEATMAP_DECREASE_DELAY_MS;
+    if decrease {
+        ctx.state.heatmap_decrease_ms = ctx.timer;
+    }
+
+    for row in 0..ctx.cfg.matrix_rows {
+        for col in 0..ctx.cfg.matrix_cols {
+            let heat = ctx.state.frame_buffer[row as usize][col as usize];
+            let Some(led) = ctx.cfg.led_at(row, col) else {
+                continue;
+            };
+            if !ctx.led_enabled(led) {
+                continue;
+            }
+            frame[led] = hsv_to_rgb(Hsv {
+                h: 170 - qsub8(heat, 85),
+                s: ctx.hsv.s,
+                v: scale8(((qadd8(170, heat) as i32 - 170) * 3) as u8, ctx.hsv.v),
+            });
+            if decrease {
+                ctx.state.frame_buffer[row as usize][col as usize] = qsub8(heat, 1);
+            }
+        }
+    }
+}
+
+// --------------------------------------------------------------- digital rain
+
+/// How often a column may start a new drop, as `1 / RGB_DIGITAL_RAIN_DROPS`.
+const DIGITAL_RAIN_DROP_CHANCE: u8 = u8::MAX / 24;
+/// Ticks between drops advancing, QMK's `drop_ticks`.
+const DIGITAL_RAIN_DROP_TICKS: u8 = 28;
+
+fn digital_rain(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
+    let max_intensity = ctx.hsv.v;
+    if ctx.init {
+        ctx.state.frame_buffer = [[0; MAX_MATRIX_COLS]; MAX_MATRIX_ROWS];
+        ctx.state.digital_rain_drop = 0;
+        frame.fill(Rgb::BLACK);
+    }
+
+    // QMK divides by the configured brightness throughout this effect, and by
+    // `pure_green_intensity` in particular, which is zero below a brightness of
+    // four. There is nothing to show at that point, so stop before the divide.
+    let pure_green = (max_intensity as u16 * 3 >> 2) as u8;
+    if pure_green == 0 {
+        frame.fill(Rgb::BLACK);
+        return;
+    }
+    let decay_ticks = u8::MAX / max_intensity;
+
+    ctx.state.digital_rain_decay = ctx.state.digital_rain_decay.wrapping_add(1);
+    let decay = ctx.state.digital_rain_decay;
+    let drop = ctx.state.digital_rain_drop;
+
+    for col in 0..ctx.cfg.matrix_cols {
+        for row in 0..ctx.cfg.matrix_rows {
+            let cell = &mut ctx.state.frame_buffer[row as usize][col as usize];
+            if row == 0 && drop == 0 && ctx.state.rand.random8() < DIGITAL_RAIN_DROP_CHANCE {
+                // The top row has just fallen, so a new drop starts here.
+                *cell = max_intensity;
+            } else if *cell > 0 && *cell < max_intensity && decay == decay_ticks {
+                *cell -= 1;
+            }
+            let intensity = *cell;
+
+            let Some(led) = ctx.cfg.led_at(row, col) else {
+                continue;
+            };
+            // QMK draws this effect without consulting the flag mask.
+            frame[led] = if intensity > pure_green {
+                let boost = (pure_green as u16 * (intensity - pure_green) as u16
+                    / (max_intensity - pure_green) as u16) as u8;
+                Rgb::new(boost, max_intensity, boost)
+            } else {
+                Rgb::new(0, (max_intensity as u16 * intensity as u16 / pure_green as u16) as u8, 0)
+            };
+        }
+    }
+
+    if decay == decay_ticks {
+        ctx.state.digital_rain_decay = 0;
+    }
+    ctx.state.digital_rain_drop = ctx.state.digital_rain_drop.wrapping_add(1);
+    if ctx.state.digital_rain_drop > DIGITAL_RAIN_DROP_TICKS {
+        ctx.state.digital_rain_drop = 0;
+        for row in (1..ctx.cfg.matrix_rows).rev() {
+            for col in 0..ctx.cfg.matrix_cols {
+                let above = ctx.state.frame_buffer[(row - 1) as usize][col as usize];
+                let current = ctx.state.frame_buffer[row as usize][col as usize];
+                // A bright pixel on the bottom row starts decaying as the rain
+                // falls past it.
+                let mut next = if row == ctx.cfg.matrix_rows - 1 && current == max_intensity {
+                    current - 1
+                } else {
+                    current
+                };
+                if above >= max_intensity {
+                    // Let the old bright pixel decay and light this one.
+                    ctx.state.frame_buffer[(row - 1) as usize][col as usize] = max_intensity - 1;
+                    next = max_intensity;
+                }
+                ctx.state.frame_buffer[row as usize][col as usize] = next;
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------- pixel fractal
+
+fn pixel_fractal(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
+    let rows = ctx.cfg.matrix_rows;
+    let cols = ctx.cfg.matrix_cols;
+    // QMK lights the left half and mirrors it onto the right.
+    let mid_col = if cols < 2 { 1 } else { cols / 2 };
+
+    if ctx.init {
+        ctx.state.fractal = [[false; MAX_MATRIX_COLS]; MAX_MATRIX_ROWS];
+        frame.fill(Rgb::BLACK);
+    }
+
+    if ctx.timer > ctx.state.fractal_wait_timer {
+        let colour = hsv_to_rgb(ctx.hsv);
+        for row in 0..rows {
+            for col in 0..mid_col {
+                let rgb = if ctx.state.fractal[row as usize][col as usize] {
+                    colour
+                } else {
+                    Rgb::BLACK
+                };
+                let left = ctx.cfg.led_at(row, col);
+                let right = ctx.cfg.led_at(row, cols - 1 - col);
+                for led in [left, right].into_iter().flatten() {
+                    if ctx.led_enabled(led) {
+                        frame[led] = rgb;
+                    }
+                }
+            }
+        }
+
+        for row in 0..rows {
+            for col in 0..(mid_col as usize).saturating_sub(1) {
+                ctx.state.fractal[row as usize][col] = ctx.state.fractal[row as usize][col + 1];
+            }
+            ctx.state.fractal[row as usize][mid_col as usize - 1] = ctx.state.rand.random8() & 3 == 0;
+        }
+        let interval = 3000 / scale16by8(qadd8(ctx.speed, 16) as u16, 16) as u32;
+        ctx.state.fractal_wait_timer = ctx.timer + interval;
+    }
 }

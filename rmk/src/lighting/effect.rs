@@ -3,6 +3,7 @@
 use crate::lighting::color::{Hsv, Rgb};
 use crate::lighting::lib8tion::{Rand16, qadd8, scale16by8};
 use crate::lighting::{LightingConfig, MAX_LEDS};
+use rmk_types::lighting::{MAX_MATRIX_COLS, MAX_MATRIX_ROWS};
 
 /// Effects this firmware can render, with the Vial id each one is known by.
 ///
@@ -42,7 +43,7 @@ macro_rules! effects {
                 }
             }
 
-            /// Every implemented effect, in Vial id order.
+            /// Every implemented effect.
             pub const ALL: &'static [Effect] = &[$(Effect::$variant),+];
         }
     };
@@ -86,6 +87,95 @@ effects! {
     (Starlight, "starlight", 49),
     (StarlightDualSat, "starlight_dual_sat", 50),
     (StarlightDualHue, "starlight_dual_hue", 51),
+    (TypingHeatmap, "typing_heatmap", 29),
+    (DigitalRain, "digital_rain", 30),
+    (SolidReactiveSimple, "solid_reactive_simple", 31),
+    (SolidReactive, "solid_reactive", 32),
+    (SolidReactiveWide, "solid_reactive_wide", 33),
+    (SolidReactiveMultiwide, "solid_reactive_multiwide", 34),
+    (SolidReactiveCross, "solid_reactive_cross", 35),
+    (SolidReactiveMulticross, "solid_reactive_multicross", 36),
+    (SolidReactiveNexus, "solid_reactive_nexus", 37),
+    (SolidReactiveMultinexus, "solid_reactive_multinexus", 38),
+    (Splash, "splash", 39),
+    (Multisplash, "multisplash", 40),
+    (SolidSplash, "solid_splash", 41),
+    (SolidMultisplash, "solid_multisplash", 42),
+    (PixelFractal, "pixel_fractal", 44),
+}
+
+/// How many LEDs' key hits the reactive effects remember, QMK's
+/// `LED_HITS_TO_REMEMBER`.
+pub const LED_HITS_TO_REMEMBER: usize = 8;
+
+/// The LEDs recently hit, with how long ago, QMK's `last_hit_t`.
+///
+/// `tick` is milliseconds since the hit, aged once per frame. Unused slots hold
+/// `u16::MAX`, which is what lets an effect tell "no hit here" from "hit just
+/// now" — QMK relies on the same value.
+#[derive(Clone, Copy)]
+pub struct HitTracker {
+    pub count: u8,
+    pub x: [u8; LED_HITS_TO_REMEMBER],
+    pub y: [u8; LED_HITS_TO_REMEMBER],
+    pub index: [u8; LED_HITS_TO_REMEMBER],
+    pub tick: [u16; LED_HITS_TO_REMEMBER],
+}
+
+impl HitTracker {
+    pub const fn new() -> Self {
+        Self {
+            count: 0,
+            x: [0; LED_HITS_TO_REMEMBER],
+            y: [0; LED_HITS_TO_REMEMBER],
+            index: [0; LED_HITS_TO_REMEMBER],
+            tick: [u16::MAX; LED_HITS_TO_REMEMBER],
+        }
+    }
+
+    /// Record a hit on `led`, dropping the oldest entries when the ring is full,
+    /// as QMK's `rgb_matrix_handle_key_event` does.
+    pub fn record(&mut self, led: u8, x: u8, y: u8) {
+        if self.count as usize + 1 > LED_HITS_TO_REMEMBER {
+            self.x.copy_within(1.., 0);
+            self.y.copy_within(1.., 0);
+            self.index.copy_within(1.., 0);
+            self.tick.copy_within(1.., 0);
+            self.count = LED_HITS_TO_REMEMBER as u8 - 1;
+        }
+        let slot = self.count as usize;
+        self.x[slot] = x;
+        self.y[slot] = y;
+        self.index[slot] = led;
+        self.tick[slot] = 0;
+        self.count += 1;
+    }
+
+    /// Age every hit, QMK's `rgb_task_timers`. Entries that would overflow the
+    /// 16-bit tick are dropped from the count, exactly as the C does.
+    pub fn age(&mut self, delta_ms: u32) {
+        for index in 0..self.count as usize {
+            if (u16::MAX as u32).wrapping_sub(delta_ms) < self.tick[index] as u32 {
+                self.count -= 1;
+                continue;
+            }
+            self.tick[index] = self.tick[index].wrapping_add(delta_ms as u16);
+        }
+    }
+
+    /// The most recent hit on `led`, or `default_tick` when there is none.
+    ///
+    /// QMK scans backwards so the newest hit wins.
+    pub fn newest_tick(&self, led: u8, default_tick: u16) -> u16 {
+        let mut tick = default_tick;
+        for slot in (0..self.count as usize).rev() {
+            if self.index[slot] == led && self.tick[slot] < tick {
+                tick = self.tick[slot];
+                break;
+            }
+        }
+        tick
+    }
 }
 
 /// Everything effects remember from one frame to the next.
@@ -112,6 +202,24 @@ pub struct EffectState {
     /// scroll is due.
     pub pixel_flow: [Rgb; MAX_LEDS],
     pub pixel_flow_wait_timer: u32,
+    /// The hits effects read, and the buffer they are aged in. QMK keeps the
+    /// same pair: `g_last_hit_tracker` is copied from `last_hit_buffer` once
+    /// per frame, so an effect sees a stable set for the whole frame.
+    pub hits: HitTracker,
+    pub hits_buffer: HitTracker,
+    /// Milliseconds at the last frame, for ageing the hits.
+    pub last_frame_ms: u32,
+    /// TYPING_HEATMAP and DIGITAL_RAIN: one heat value per matrix cell.
+    pub frame_buffer: [[u8; MAX_MATRIX_COLS]; MAX_MATRIX_ROWS],
+    /// TYPING_HEATMAP: when the heat was last decreased.
+    pub heatmap_decrease_ms: u32,
+    /// PIXEL_FRACTAL: which cells of the left half are lit, mirrored to the
+    /// right half when rendering, and when the pattern may shift again.
+    pub fractal: [[bool; MAX_MATRIX_COLS]; MAX_MATRIX_ROWS],
+    pub fractal_wait_timer: u32,
+    /// DIGITAL_RAIN: the tick counters driving its drops and decay.
+    pub digital_rain_drop: u8,
+    pub digital_rain_decay: u8,
 }
 
 impl EffectState {
@@ -126,6 +234,15 @@ impl EffectState {
             pixel_rain_timer: 0,
             pixel_flow: [Rgb::BLACK; MAX_LEDS],
             pixel_flow_wait_timer: 0,
+            hits: HitTracker::new(),
+            hits_buffer: HitTracker::new(),
+            last_frame_ms: 0,
+            frame_buffer: [[0; MAX_MATRIX_COLS]; MAX_MATRIX_ROWS],
+            heatmap_decrease_ms: 0,
+            fractal: [[false; MAX_MATRIX_COLS]; MAX_MATRIX_ROWS],
+            fractal_wait_timer: 0,
+            digital_rain_drop: 0,
+            digital_rain_decay: 0,
         }
     }
 }
@@ -234,5 +351,42 @@ mod tests {
         for effect in Effect::ALL {
             assert_eq!(Effect::from_id(effect.id()), Some(*effect));
         }
+    }
+
+    #[test]
+    fn hits_age_in_milliseconds_and_the_ring_keeps_the_newest() {
+        let mut tracker = HitTracker::new();
+        tracker.record(3, 10, 20);
+        tracker.record(4, 11, 21);
+        assert_eq!(tracker.count, 2);
+        assert_eq!(tracker.newest_tick(3, u16::MAX), 0, "a fresh hit has aged nothing");
+
+        tracker.age(30);
+        assert_eq!(tracker.newest_tick(3, u16::MAX), 30);
+        assert_eq!(tracker.newest_tick(4, u16::MAX), 30);
+        // A LED that was never hit reports the caller's default, which is what
+        // leaves it out of the effect.
+        assert_eq!(tracker.newest_tick(9, 1234), 1234);
+
+        let mut full = HitTracker::new();
+        for led in 0..LED_HITS_TO_REMEMBER as u8 {
+            full.record(led, led, led);
+        }
+        full.record(42, 1, 2);
+        assert_eq!(full.count as usize, LED_HITS_TO_REMEMBER);
+        assert_eq!(full.newest_tick(0, u16::MAX), u16::MAX, "LED 0 fell out of the ring");
+        assert_eq!(full.newest_tick(42, u16::MAX), 0);
+    }
+
+    #[test]
+    fn a_hit_older_than_the_tick_range_leaves_the_ring() {
+        let mut tracker = HitTracker::new();
+        tracker.record(1, 0, 0);
+        tracker.age(60_000);
+        assert_eq!(tracker.tick[0], 60_000);
+        // Ten more seconds would push the tick past `u16::MAX`, and QMK drops
+        // the entry from the count instead of letting it wrap.
+        tracker.age(10_000);
+        assert_eq!(tracker.count, 0);
     }
 }

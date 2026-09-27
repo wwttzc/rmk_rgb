@@ -190,6 +190,9 @@ pub struct RgbConfig {
     pub default: RgbDefault,
     pub animations: BTreeMap<String, bool>,
     pub layout: Vec<LedConfig>,
+    /// The keyboard matrix the framebuffer effects iterate over.
+    pub matrix_rows: u8,
+    pub matrix_cols: u8,
 }
 
 /// Resolved `[rgb_matrix.default]`, with `val` already defaulted.
@@ -262,6 +265,17 @@ impl crate::KeyboardTomlConfig {
         }
 
         let default = &matrix.default;
+        // The framebuffer effects walk the keyboard matrix, so they need its
+        // size. `[layout]` in keyboard.toml is authoritative; without it, the
+        // extent of the LEDs that name a position is the best available answer.
+        let (matrix_rows, matrix_cols) = match self.layout.as_ref() {
+            Some(layout) => (layout.rows, layout.cols),
+            None => (
+                matrix.layout.iter().filter_map(|led| led.matrix).map(|pos| pos[0] + 1).max().unwrap_or(0),
+                matrix.layout.iter().filter_map(|led| led.matrix).map(|pos| pos[1] + 1).max().unwrap_or(0),
+            ),
+        };
+
         let rgb = RgbConfig {
             driver: matrix.driver,
             ws2812: ws2812.clone(),
@@ -286,6 +300,8 @@ impl crate::KeyboardTomlConfig {
             },
             animations: matrix.animations.clone(),
             layout: matrix.layout.clone(),
+            matrix_rows,
+            matrix_cols,
         };
         Ok(Some(rgb))
     }
