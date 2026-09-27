@@ -150,7 +150,7 @@ fn gradient_left_right(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
     let scale = scale8(64, ctx.speed);
     each_led(ctx.cfg, ctx.flags, frame, |led| {
         // x spans 0..224, so this maps onto 0..7 hue steps.
-        hsv_to_rgb(shift_hue(ctx.hsv, scale as i32 * ctx.cfg.points[led].0 as i32 >> 5))
+        hsv_to_rgb(shift_hue(ctx.hsv, (scale as i32 * ctx.cfg.points[led].0 as i32) >> 5))
     });
 }
 
@@ -357,10 +357,7 @@ fn breathing(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
 
 fn hue_breathing(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
     let time = ctx.time_i();
-    let delta = scale8(
-        (abs8((sin8(time / 2) as i32 - 128) as i8) as i32 * 2) as u8,
-        12,
-    );
+    let delta = scale8((abs8((sin8(time / 2) as i32 - 128) as i8) as i32 * 2) as u8, 12);
     let colour = hsv_to_rgb(shift_hue(ctx.hsv, delta as i32));
     each_led(ctx.cfg, ctx.flags, frame, |_| colour);
 }
@@ -402,7 +399,7 @@ fn jellybean_colour(rand: &mut Rand16, v: u8) -> Rgb {
 
 fn raindrops(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
     let count = ctx.cfg.points.len();
-    if scale16by8(ctx.timer as u16, qadd8(ctx.speed, 16)) % 10 == 0 {
+    if scale16by8(ctx.timer as u16, qadd8(ctx.speed, 16)).is_multiple_of(10) {
         ctx.state.raindrops_index = ctx.state.rand.random8_max(count as u8) as u16;
     }
 
@@ -421,7 +418,7 @@ fn raindrops(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
 
 fn jellybean_raindrops(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
     let count = ctx.cfg.points.len();
-    if scale16by8(ctx.timer as u16, qadd8(ctx.speed, 16)) % 5 == 0 {
+    if scale16by8(ctx.timer as u16, qadd8(ctx.speed, 16)).is_multiple_of(5) {
         ctx.state.raindrops_index = ctx.state.rand.random8_max(count as u8) as u16;
     }
 
@@ -442,7 +439,7 @@ fn jellybean_raindrops(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
 
 fn starlight(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
     let count = ctx.cfg.points.len();
-    if scale16by8(ctx.timer as u16, qadd8(ctx.speed, 5)) % 5 == 0 {
+    if scale16by8(ctx.timer as u16, qadd8(ctx.speed, 5)).is_multiple_of(5) {
         ctx.state.starlight_index = ctx.state.rand.random8_max(count as u8) as u16;
     }
     let time = scale16by8(ctx.timer as u16, ctx.speed / 8);
@@ -463,7 +460,7 @@ fn starlight(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
 fn starlight_dual_sat(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
     let count = ctx.cfg.points.len();
     let (speed, timer, hsv) = (ctx.speed, ctx.timer, ctx.hsv);
-    if scale16by8(timer as u16, qadd8(speed, 5)) % 5 == 0 {
+    if scale16by8(timer as u16, qadd8(speed, 5)).is_multiple_of(5) {
         ctx.state.starlight_index = ctx.state.rand.random8_max(count as u8) as u16;
     }
     let time = scale16by8(timer as u16, speed / 8);
@@ -491,7 +488,7 @@ fn starlight_dual_sat(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
 fn starlight_dual_hue(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
     let count = ctx.cfg.points.len();
     let (speed, timer, hsv) = (ctx.speed, ctx.timer, ctx.hsv);
-    if scale16by8(timer as u16, qadd8(speed, 5)) % 5 == 0 {
+    if scale16by8(timer as u16, qadd8(speed, 5)).is_multiple_of(5) {
         ctx.state.starlight_index = ctx.state.rand.random8_max(count as u8) as u16;
     }
     let time = scale16by8(timer as u16, speed / 8);
@@ -644,10 +641,7 @@ fn solid_reactive_simple(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
 
 fn solid_reactive(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
     reactive(ctx, frame, |hsv, offset| {
-        shift_hue(
-            hsv,
-            scale8(255 - offset.min(255) as u8, 64) as i32,
-        )
+        shift_hue(hsv, scale8(255 - offset.min(255) as u8, 64) as i32)
     });
 }
 
@@ -828,7 +822,7 @@ fn digital_rain(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
     // QMK divides by the configured brightness throughout this effect, and by
     // `pure_green_intensity` in particular, which is zero below a brightness of
     // four. There is nothing to show at that point, so stop before the divide.
-    let pure_green = (max_intensity as u16 * 3 >> 2) as u8;
+    let pure_green = ((max_intensity as u16 * 3) >> 2) as u8;
     if pure_green == 0 {
         frame.fill(Rgb::BLACK);
         return;
@@ -855,11 +849,15 @@ fn digital_rain(ctx: &mut EffectCtx, frame: &mut [Rgb]) {
             };
             // QMK draws this effect without consulting the flag mask.
             frame[led] = if intensity > pure_green {
-                let boost = (pure_green as u16 * (intensity - pure_green) as u16
-                    / (max_intensity - pure_green) as u16) as u8;
+                let boost =
+                    (pure_green as u16 * (intensity - pure_green) as u16 / (max_intensity - pure_green) as u16) as u8;
                 Rgb::new(boost, max_intensity, boost)
             } else {
-                Rgb::new(0, (max_intensity as u16 * intensity as u16 / pure_green as u16) as u8, 0)
+                Rgb::new(
+                    0,
+                    (max_intensity as u16 * intensity as u16 / pure_green as u16) as u8,
+                    0,
+                )
             };
         }
     }

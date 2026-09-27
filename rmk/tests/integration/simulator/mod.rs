@@ -31,10 +31,10 @@ use rmk::channel::BLE_REPORT_CHANNEL as REPORT_CHANNEL;
 use rmk::channel::USB_REPORT_CHANNEL as REPORT_CHANNEL;
 #[cfg(feature = "host")]
 use rmk::config::RmkConfig;
-#[cfg(feature = "host")]
-use rmk::config::VialConfig;
 #[cfg(feature = "storage")]
 use rmk::config::StorageConfig;
+#[cfg(feature = "host")]
+use rmk::config::VialConfig;
 use rmk::config::{BehaviorConfig, Hand, PositionalConfig};
 use rmk::core_traits::Runnable;
 use rmk::event::{AsyncEventPublisher, AsyncPublishableEvent, KeyboardEvent, KeyboardEventPos};

@@ -30,9 +30,9 @@ pub use processor::LightingProcessor;
 use embassy_sync::mutex::Mutex;
 use rmk_types::action::LightAction;
 
+use crate::RawMutex;
 use crate::lighting::color::{Hsv, Rgb};
 use crate::lighting::effect::{Effect, EffectCtx, EffectState};
-use crate::RawMutex;
 
 /// Most LEDs a chain may have. `rmk-macro` refuses a larger `rgb.toml`.
 pub const MAX_LEDS: usize = 128;
@@ -401,9 +401,7 @@ pub async fn apply_light_action(action: LightAction, pressed: bool) {
         LightAction::RgbHud => state.hsv.h = state.hsv.h.wrapping_sub(cfg.hue_steps),
         LightAction::RgbSai => state.hsv.s = state.hsv.s.saturating_add(cfg.sat_steps),
         LightAction::RgbSad => state.hsv.s = state.hsv.s.saturating_sub(cfg.sat_steps),
-        LightAction::RgbVai => {
-            state.hsv.v = state.hsv.v.saturating_add(cfg.val_steps).min(cfg.max_brightness)
-        }
+        LightAction::RgbVai => state.hsv.v = state.hsv.v.saturating_add(cfg.val_steps).min(cfg.max_brightness),
         LightAction::RgbVad => state.hsv.v = state.hsv.v.saturating_sub(cfg.val_steps),
         LightAction::RgbSpi => state.speed = state.speed.saturating_add(cfg.speed_steps),
         LightAction::RgbSpd => state.speed = state.speed.saturating_sub(cfg.speed_steps),

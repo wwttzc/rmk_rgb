@@ -535,8 +535,7 @@ fn rgb_toml_resolves_the_chain_and_its_state() {
     assert_eq!(rgb.center, [112, 32], "QMK's default centre");
     assert_eq!(rgb.default.animation, "breathing");
     assert_eq!(
-        rgb.default.val,
-        rgb.max_brightness,
+        rgb.default.val, rgb.max_brightness,
         "an unset brightness defaults to the ceiling, as in QMK"
     );
     assert_eq!(rgb.layout[1].matrix, Some([1, 1]));

@@ -1,9 +1,10 @@
 //! Which effects exist, and the state they keep between frames.
 
+use rmk_types::lighting::{MAX_MATRIX_COLS, MAX_MATRIX_ROWS};
+
 use crate::lighting::color::{Hsv, Rgb};
 use crate::lighting::lib8tion::{Rand16, qadd8, scale16by8};
 use crate::lighting::{LightingConfig, MAX_LEDS};
-use rmk_types::lighting::{MAX_MATRIX_COLS, MAX_MATRIX_ROWS};
 
 /// Effects this firmware can render, with the Vial id each one is known by.
 ///
@@ -122,6 +123,12 @@ pub struct HitTracker {
     pub tick: [u16; LED_HITS_TO_REMEMBER],
 }
 
+impl Default for HitTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HitTracker {
     pub const fn new() -> Self {
         Self {
@@ -220,6 +227,12 @@ pub struct EffectState {
     /// DIGITAL_RAIN: the tick counters driving its drops and decay.
     pub digital_rain_drop: u8,
     pub digital_rain_decay: u8,
+}
+
+impl Default for EffectState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EffectState {

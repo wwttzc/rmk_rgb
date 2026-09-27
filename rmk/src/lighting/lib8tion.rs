@@ -120,6 +120,12 @@ pub struct Rand16 {
     seed: u16,
 }
 
+impl Default for Rand16 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Rand16 {
     /// lib8tion seeds the generator with `RAND16_SEED`, which is 1337.
     pub const fn new() -> Self {

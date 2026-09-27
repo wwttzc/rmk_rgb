@@ -353,7 +353,9 @@ mod tests {
 
         let config = rmk_config::KeyboardTomlConfig::new_from_toml_path(&path);
         std::fs::remove_dir_all(&dir).ok();
-        config.hardware().expect("the test configuration must resolve")
+        config
+            .hardware()
+            .expect("the test configuration must resolve")
     }
 
     /// The generated init is only ever compiled for the chip, so nothing here
@@ -372,12 +374,24 @@ mod tests {
     #[test]
     fn the_esp_init_only_reaches_for_esp_radio_when_ble_is_on() {
         let without = chip_init_default(&esp32s3_hardware(false), None).to_string();
-        assert!(!without.contains("esp_radio"), "BLE off still pulls esp-radio in: {without}");
-        assert!(!without.contains("bt_hci"), "BLE off still pulls bt-hci in: {without}");
-        assert!(without.contains("esp_rtos"), "the base initialization is still there");
+        assert!(
+            !without.contains("esp_radio"),
+            "BLE off still pulls esp-radio in: {without}"
+        );
+        assert!(
+            !without.contains("bt_hci"),
+            "BLE off still pulls bt-hci in: {without}"
+        );
+        assert!(
+            without.contains("esp_rtos"),
+            "the base initialization is still there"
+        );
 
         let with = chip_init_default(&esp32s3_hardware(true), None).to_string();
-        assert!(with.contains("esp_radio"), "BLE on has to build the connector: {with}");
+        assert!(
+            with.contains("esp_radio"),
+            "BLE on has to build the connector: {with}"
+        );
         assert!(with.contains("bt_hci"));
     }
 }

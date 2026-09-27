@@ -254,7 +254,10 @@ impl crate::KeyboardTomlConfig {
                     layout.rows, layout.cols
                 ));
             }
-            if matrix.layout[..index].iter().any(|other| other.matrix.is_some() && other.matrix == led.matrix) {
+            if matrix.layout[..index]
+                .iter()
+                .any(|other| other.matrix.is_some() && other.matrix == led.matrix)
+            {
                 // Multiple LEDs on one key are legitimate, but the same LED
                 // listed twice is always a copy-paste slip.
                 return Err(format!(
@@ -271,8 +274,20 @@ impl crate::KeyboardTomlConfig {
         let (matrix_rows, matrix_cols) = match self.layout.as_ref() {
             Some(layout) => (layout.rows, layout.cols),
             None => (
-                matrix.layout.iter().filter_map(|led| led.matrix).map(|pos| pos[0] + 1).max().unwrap_or(0),
-                matrix.layout.iter().filter_map(|led| led.matrix).map(|pos| pos[1] + 1).max().unwrap_or(0),
+                matrix
+                    .layout
+                    .iter()
+                    .filter_map(|led| led.matrix)
+                    .map(|pos| pos[0] + 1)
+                    .max()
+                    .unwrap_or(0),
+                matrix
+                    .layout
+                    .iter()
+                    .filter_map(|led| led.matrix)
+                    .map(|pos| pos[1] + 1)
+                    .max()
+                    .unwrap_or(0),
             ),
         };
 

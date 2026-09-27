@@ -88,7 +88,11 @@ pub static EFFECTS: &[EffectInfo] = &[
     effect("hue_breathing", 26, IMPLEMENTED),
     effect("hue_pendulum", 27, IMPLEMENTED | NEEDS_LAYOUT),
     effect("hue_wave", 28, IMPLEMENTED | NEEDS_LAYOUT),
-    effect("typing_heatmap", 29, IMPLEMENTED | NEEDS_MATRIX | REACTIVE | FRAMEBUFFER),
+    effect(
+        "typing_heatmap",
+        29,
+        IMPLEMENTED | NEEDS_MATRIX | REACTIVE | FRAMEBUFFER,
+    ),
     effect("digital_rain", 30, IMPLEMENTED | NEEDS_MATRIX | FRAMEBUFFER),
     effect("solid_reactive_simple", 31, IMPLEMENTED | REACTIVE),
     effect("solid_reactive", 32, IMPLEMENTED | REACTIVE),

@@ -10,7 +10,7 @@
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use rmk_config::resolved::hardware::{ChipModel, ChipSeries, ColorOrder, RgbConfig};
+use rmk_config::resolved::hardware::{ChipModel, ColorOrder, RgbConfig};
 use rmk_types::lighting;
 
 use super::input_device::Initializer;
@@ -30,7 +30,8 @@ pub(crate) fn expand_rgb_config(chip: &ChipModel, rgb: &RgbConfig) -> (TokenStre
 
     // The heatmap and rain effects keep one byte per matrix cell in fixed-size
     // statics, so a bigger matrix has nowhere to go.
-    if rgb.matrix_rows as usize > lighting::MAX_MATRIX_ROWS || rgb.matrix_cols as usize > lighting::MAX_MATRIX_COLS
+    if rgb.matrix_rows as usize > lighting::MAX_MATRIX_ROWS
+        || rgb.matrix_cols as usize > lighting::MAX_MATRIX_COLS
     {
         panic!(
             "rgb.toml: the keyboard matrix is {}x{}, but the framebuffer effects (typing_heatmap, \
@@ -56,7 +57,12 @@ pub(crate) fn expand_rgb_config(chip: &ChipModel, rgb: &RgbConfig) -> (TokenStre
     let modes_len = modes.len();
     // Vial's own table starts at its OFF id, so that is what the panel sees first.
     let vial_modes: Vec<u16> = std::iter::once(0)
-        .chain(modes.iter().copied().filter(|&id| id <= lighting::LAST_VIAL_ID))
+        .chain(
+            modes
+                .iter()
+                .copied()
+                .filter(|&id| id <= lighting::LAST_VIAL_ID),
+        )
         .collect();
     let vial_modes_len = vial_modes.len();
 
@@ -64,12 +70,8 @@ pub(crate) fn expand_rgb_config(chip: &ChipModel, rgb: &RgbConfig) -> (TokenStre
     let (center_x, center_y) = (rgb.center[0], rgb.center[1]);
     let react_on_keyup = rgb.react_on_keyup;
     let (matrix_rows, matrix_cols) = (rgb.matrix_rows, rgb.matrix_cols);
-    let (hue_steps, sat_steps, val_steps, speed_steps) = (
-        rgb.hue_steps,
-        rgb.sat_steps,
-        rgb.val_steps,
-        rgb.speed_steps,
-    );
+    let (hue_steps, sat_steps, val_steps, speed_steps) =
+        (rgb.hue_steps, rgb.sat_steps, rgb.val_steps, rgb.speed_steps);
     let (default_on, default_hue, default_sat, default_val, default_speed, default_flags) = (
         rgb.default.on,
         rgb.default.hue,
@@ -263,7 +265,9 @@ fn expand_driver(chip: &ChipModel, rgb: &RgbConfig, led_count: usize) -> TokenSt
 
 #[cfg(test)]
 mod tests {
-    use rmk_config::resolved::hardware::{LedConfig, RgbConfig, RgbDefault, RgbDriver, Ws2812Config};
+    use rmk_config::resolved::hardware::{
+        ChipSeries, LedConfig, RgbConfig, RgbDefault, RgbDriver, Ws2812Config,
+    };
 
     use super::*;
 
@@ -297,7 +301,10 @@ mod tests {
                 speed: 128,
                 flags: 255,
             },
-            animations: animations.iter().map(|(name, on)| (name.to_string(), *on)).collect(),
+            animations: animations
+                .iter()
+                .map(|(name, on)| (name.to_string(), *on))
+                .collect(),
             layout: vec![LedConfig {
                 matrix: Some([0, 0]),
                 x: 0,
@@ -311,13 +318,23 @@ mod tests {
 
     #[test]
     fn enabled_effects_become_mode_ids_in_order() {
-        let modes = enabled_modes(&chain(&[("cycle_all", true), ("breathing", true)], "breathing"));
-        assert_eq!(modes, vec![2, 6, 13], "sorted, and solid colour is always there");
+        let modes = enabled_modes(&chain(
+            &[("cycle_all", true), ("breathing", true)],
+            "breathing",
+        ));
+        assert_eq!(
+            modes,
+            vec![2, 6, 13],
+            "sorted, and solid colour is always there"
+        );
     }
 
     #[test]
     fn a_disabled_effect_is_not_compiled_in() {
-        let modes = enabled_modes(&chain(&[("cycle_all", false), ("breathing", true)], "breathing"));
+        let modes = enabled_modes(&chain(
+            &[("cycle_all", false), ("breathing", true)],
+            "breathing",
+        ));
         assert_eq!(modes, vec![2, 6]);
     }
 
@@ -358,9 +375,13 @@ mod tests {
     /// catch a malformed token stream until CI does. Parsing it as Rust does.
     #[test]
     fn the_generated_code_parses_as_rust() {
-        let rgb = chain(&[("breathing", true), ("typing_heatmap", true)], "breathing");
+        let rgb = chain(
+            &[("breathing", true), ("typing_heatmap", true)],
+            "breathing",
+        );
         let (init, processor) = expand_rgb_config(&esp32s3(), &rgb);
-        syn::parse2::<syn::Block>(quote! { { #init } }).expect("the lighting initialization must be valid Rust");
+        syn::parse2::<syn::Block>(quote! { { #init } })
+            .expect("the lighting initialization must be valid Rust");
         assert_eq!(processor.var_name.to_string(), "rgb_processor");
     }
 
@@ -373,10 +394,15 @@ mod tests {
             return;
         };
         let config = rmk_config::KeyboardTomlConfig::new_from_toml_path(&path);
-        let hardware = config.hardware().expect("the hardware configuration must resolve");
-        let rgb = hardware.rgb.expect("rgb.toml must be next to keyboard.toml");
+        let hardware = config
+            .hardware()
+            .expect("the hardware configuration must resolve");
+        let rgb = hardware
+            .rgb
+            .expect("rgb.toml must be next to keyboard.toml");
         let (init, _) = expand_rgb_config(&hardware.chip, &rgb);
         println!("{init}");
-        syn::parse2::<syn::Block>(quote! { { #init } }).expect("the lighting initialization must be valid Rust");
+        syn::parse2::<syn::Block>(quote! { { #init } })
+            .expect("the lighting initialization must be valid Rust");
     }
 }
