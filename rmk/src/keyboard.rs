@@ -150,7 +150,13 @@ impl Runnable for Keyboard<'_> {
                 None => Some(self.keyboard_event_subscriber.next_message_pure().await),
             };
             match event {
-                Some(event) => self.process_inner(event).await,
+                Some(event) => {
+                    // Lighting counts input activity for its idle timeout, the
+                    // way QMK's `last_input_activity` does.
+                    #[cfg(feature = "rgb_matrix")]
+                    crate::lighting::on_activity(embassy_time::Instant::now().as_millis() as u32).await;
+                    self.process_inner(event).await
+                }
                 None => self.fire_expired().await,
             }
 
@@ -1379,7 +1385,7 @@ impl<'a> Keyboard<'a> {
                 self.update_osl(event);
             }
             Action::OneShotKey(_k) => warn!("One-shot key is not supported: {:?}", action),
-            Action::Light(_light_action) => warn!("Light control is not supported"),
+            Action::Light(light_action) => self.process_action_light(light_action, event).await,
             Action::KeyboardControl(c) => self.process_action_keyboard_control(c, event).await,
             Action::Special(special_key) => self.process_action_special(special_key, event).await,
             Action::User(id) => self.process_user(id, event).await,
@@ -1548,6 +1554,20 @@ impl<'a> Keyboard<'a> {
             }
             _ => warn!("SpecialKey variant not supported: {:?}", key),
         };
+    }
+
+    /// Handle a lighting keycode, such as `RgbTog` or `RgbHui`.
+    ///
+    /// The keycodes only do something while the per-key RGB feature is
+    /// compiled in; without it they are accepted and ignored, as before.
+    async fn process_action_light(&mut self, light_action: rmk_types::action::LightAction, event: KeyboardEvent) {
+        #[cfg(feature = "rgb_matrix")]
+        crate::lighting::apply_light_action(light_action, event.pressed).await;
+        #[cfg(not(feature = "rgb_matrix"))]
+        {
+            let _ = (light_action, event);
+            warn!("Light control is not supported");
+        }
     }
 
     async fn process_action_keyboard_control(&mut self, keyboard_control: KeyboardAction, event: KeyboardEvent) {

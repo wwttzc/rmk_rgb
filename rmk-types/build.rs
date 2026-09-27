@@ -14,6 +14,12 @@ fn main() {
     let toml_path = std::env::var("KEYBOARD_TOML_PATH").ok();
     let config: KeyboardTomlConfig = if let Some(toml_path) = &toml_path {
         println!("cargo:rerun-if-changed={toml_path}");
+        // `rgb.toml` is read by the `#[rmk_keyboard]` macro, not by this build
+        // script; watching it here is what makes an edit re-expand that macro.
+        let rgb_path = Path::new(toml_path).with_file_name(rmk_config::rgb::RGB_TOML_FILE);
+        if rgb_path.exists() {
+            println!("cargo:rerun-if-changed={}", rgb_path.display());
+        }
         KeyboardTomlConfig::new_from_toml_path_with_event_defaults(toml_path)
     } else {
         toml::from_str("").expect("Failed to parse empty keyboard config\n")

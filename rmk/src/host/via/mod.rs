@@ -13,6 +13,8 @@ use crate::{MACRO_SPACE_SIZE, boot};
 
 pub(crate) mod keycode_convert;
 mod vial;
+#[cfg(feature = "rgb_matrix")]
+mod vialrgb;
 
 pub struct VialService<'a> {
     ctx: KeyboardContext<'a>,
@@ -126,15 +128,27 @@ impl<'a> VialService<'a> {
                 warn!("Dynamic keymap reset -- not supported")
             }
             ViaCommand::CustomSetValue => {
+                #[cfg(feature = "rgb_matrix")]
+                if vialrgb::is_lighting(report.output_data[1]) {
+                    vialrgb::process_set(report).await;
+                    return;
+                }
                 // backlight/rgblight/rgb matrix/led matrix/audio settings here
                 warn!("Custom set value -- not supported")
             }
             ViaCommand::CustomGetValue => {
+                #[cfg(feature = "rgb_matrix")]
+                if vialrgb::is_lighting(report.output_data[1]) {
+                    vialrgb::process_get(report).await;
+                    return;
+                }
                 // backlight/rgblight/rgb matrix/led matrix/audio settings here
                 warn!("Custom get value -- not supported")
             }
             ViaCommand::CustomSave => {
-                // backlight/rgblight/rgb matrix/led matrix/audio settings here
+                #[cfg(feature = "rgb_matrix")]
+                vialrgb::process_save(report).await;
+                #[cfg(not(feature = "rgb_matrix"))]
                 warn!("Custom get value -- not supported")
             }
             ViaCommand::EepromReset => {

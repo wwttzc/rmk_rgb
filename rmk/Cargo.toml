@@ -56,6 +56,10 @@ display-interface = { version = "0.5", optional = true }
 display-interface-i2c = { version = "0.5", optional = true }
 
 # Optional dependencies
+# Per-key RGB writes the chain through the standard smart-LED trait, which keeps
+# the board's own driver (RMT, PIO, bit-bang) outside this crate.
+smart-leds-trait = { version = "0.3", optional = true }
+
 # BLE dependencies
 trouble-host = { version = "0.8", default-features = false, features = [
     "peripheral",
@@ -214,7 +218,9 @@ st7796 = ["lcd_async"]
 ## Enable async matrix scanning
 async_matrix = []
 
-## Use 1M PHY toward the host.
+## Enable per-key RGB lighting — QMK's RGB Matrix, configured by `rgb.toml`
+## next to `keyboard.toml`. Requires a board-provided LED driver.
+rgb_matrix = ["dep:smart-leds-trait", "rmk-macro/rgb_matrix"]## Use 1M PHY toward the host.
 ## The dongle link and the split link are unaffected: they always run at 2M.
 use_1m_phy = []
 

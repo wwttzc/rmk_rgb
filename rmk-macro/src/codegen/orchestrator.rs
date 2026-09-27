@@ -25,6 +25,7 @@ use super::keyboard_config::{
 use super::keymap::expand_default_keymap;
 use super::matrix::{expand_bootmagic_check, expand_matrix_config};
 use super::registered_processor::expand_registered_processor_init;
+use super::rgb::expand_rgb_config;
 use super::split::central::expand_split_central_config;
 use super::watchdog::expand_watchdog_init;
 
@@ -69,6 +70,21 @@ pub(crate) fn parse_keyboard_mod(item_mod: syn::ItemMod) -> TokenStream2 {
             .is_some_and(|dfu| !dfu.unlock_keys.is_empty()),
     )
     .unwrap_or_else(|err| panic!("{err}"));
+
+    // The lighting configuration lives in its own file, so the mismatch reads
+    // better with its own wording than with the keyboard.toml one above. It is
+    // checked here rather than in the parity table because the table's callers
+    // pass keyboard.toml booleans.
+    if hardware.rgb.is_some() != is_feature_enabled(&rmk_features, "rgb_matrix") {
+        let message = if hardware.rgb.is_some() {
+            "`rgb.toml` configures per-key RGB, so rmk's \"rgb_matrix\" Cargo feature has to be \
+             enabled in Cargo.toml."
+        } else {
+            "rmk's \"rgb_matrix\" Cargo feature is enabled, but there is no `rgb.toml` next to \
+             keyboard.toml with a [rgb_matrix] and a [ws2812] section describing the chain."
+        };
+        return quote! { compile_error!(#message); };
+    }
 
     // Over-budget strings would leave the keyboard undiscoverable or panic it on boot.
     let name_len = identity.product_name.len();
@@ -151,6 +167,10 @@ fn validate_feature_config_parity(
         });
     }
 
+    // The lighting configuration lives in its own file, so the mismatch reads
+    // better with its own wording than with the keyboard.toml one above. It is
+    // checked here rather than in the parity table because the table's callers
+    // pass keyboard.toml booleans.
     Ok(())
 }
 
@@ -416,6 +436,20 @@ fn expand_main(
         quote! {}
     };
 
+    // Per-key RGB, from the `rgb.toml` next to keyboard.toml.
+    let rgb_init = if let Some(rgb_config) = hardware.rgb.as_ref() {
+        let (init, processor) = expand_rgb_config(&hardware.chip, rgb_config);
+        let processor_initializer = processor.initializer;
+        let processor_var = processor.var_name;
+        registered_processors.push(quote! { #processor_var.run() });
+        quote! {
+            #init
+            #processor_initializer
+        }
+    } else {
+        quote! {}
+    };
+
     // Rynk-only: bake the physical-layout blob as a compile-time const and enable
     // the lock gate. Both fields land adjacently in the `RmkConfig` literal below.
     let (layout_blob_static, rynk_layout_field, lock_config) = if host.rynk_enabled {
@@ -545,6 +579,9 @@ fn expand_main(
 
             // Initialize display (if configured)
             #display_init
+
+            // Initialize per-key RGB (if rgb.toml is present)
+            #rgb_init
 
             // Initialize split central config(if needed)
             #split_central_config

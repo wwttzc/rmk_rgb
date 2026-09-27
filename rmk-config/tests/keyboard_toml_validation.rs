@@ -457,3 +457,153 @@ led = "PIN_9"
         "peripheral should keep the global external flash"
     );
 }
+
+/// The lighting configuration is a separate file beside `keyboard.toml`, so a
+/// case has to lay out a directory with both.
+fn write_rgb_case(name: &str, rgb_toml: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "rmk-rgb-{name}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("keyboard.toml"), MINIMAL_KEYBOARD_TOML).unwrap();
+    std::fs::write(dir.join("rgb.toml"), rgb_toml).unwrap();
+    dir.join("keyboard.toml")
+}
+
+/// The rejection message of a configuration that must not resolve. `Hardware`
+/// has no `Debug`, so this cannot go through `unwrap_err`.
+fn rejection(config: &KeyboardTomlConfig) -> String {
+    match config.hardware() {
+        Err(error) => error,
+        Ok(_) => panic!("the configuration should have been rejected"),
+    }
+}
+
+const CHAIN_TOML: &str = r#"
+[ws2812]
+pin = "PIN_8"
+
+[rgb_matrix]
+driver = "ws2812"
+led_count = 2
+
+[rgb_matrix.default]
+animation = "breathing"
+
+[rgb_matrix.animations]
+breathing = true
+
+[[rgb_matrix.layout]]
+matrix = [0, 0]
+x = 0
+y = 0
+flags = 4
+
+[[rgb_matrix.layout]]
+matrix = [1, 1]
+x = 224
+y = 64
+flags = 4
+"#;
+
+#[test]
+fn rgb_toml_is_optional() {
+    let path = write_temp_keyboard_toml("rgb-absent", "");
+    let config = KeyboardTomlConfig::new_from_toml_path(&path);
+    std::fs::remove_file(path).ok();
+
+    assert!(
+        config.hardware().unwrap().rgb.is_none(),
+        "a keyboard without rgb.toml has no lighting, and that is not an error"
+    );
+}
+
+#[test]
+fn rgb_toml_resolves_the_chain_and_its_state() {
+    let path = write_rgb_case("rgb-ok", CHAIN_TOML);
+    let config = KeyboardTomlConfig::new_from_toml_path(&path);
+    let rgb = config.hardware().unwrap().rgb.expect("rgb.toml should resolve");
+
+    assert_eq!(rgb.led_count, 2, "led_count comes from the layout when omitted");
+    assert_eq!(rgb.max_brightness, u8::MAX, "QMK's default brightness ceiling");
+    assert_eq!(rgb.frame_ms, 16, "QMK's default flush limit");
+    assert_eq!(rgb.center, [112, 32], "QMK's default centre");
+    assert_eq!(rgb.default.animation, "breathing");
+    assert_eq!(
+        rgb.default.val,
+        rgb.max_brightness,
+        "an unset brightness defaults to the ceiling, as in QMK"
+    );
+    assert_eq!(rgb.layout[1].matrix, Some([1, 1]));
+    assert_eq!(rgb.ws2812.pin, "PIN_8");
+    assert_eq!(rgb.ws2812.t1h_ns, 900, "WS2812B timings are the defaults");
+
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
+fn rgb_toml_rejects_unknown_keys() {
+    let path = write_rgb_case(
+        "rgb-typo",
+        &CHAIN_TOML.replace("led_count = 2", "led_count = 2\nled_process_limit = 15"),
+    );
+
+    let result = std::panic::catch_unwind(|| {
+        let config = KeyboardTomlConfig::new_from_toml_path(&path);
+        rejection(&config)
+    });
+    let message = panic_message(result.unwrap_err());
+    assert!(
+        message.contains("led_process_limit") && message.contains("unknown field"),
+        "a key RMK cannot honour must be rejected by name, got: {message}"
+    );
+
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
+fn rgb_toml_rejects_a_led_outside_the_matrix() {
+    let path = write_rgb_case("rgb-outside", &CHAIN_TOML.replace("matrix = [1, 1]", "matrix = [4, 0]"));
+    let config = KeyboardTomlConfig::new_from_toml_path(&path);
+
+    let error = rejection(&config);
+    assert!(
+        error.contains("outside the 2x2 matrix"),
+        "a LED pointing at a cell that does not exist is a config error, got: {error}"
+    );
+
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
+fn rgb_toml_rejects_a_led_count_mismatch() {
+    let path = write_rgb_case("rgb-count", &CHAIN_TOML.replace("led_count = 2", "led_count = 3"));
+    let config = KeyboardTomlConfig::new_from_toml_path(&path);
+
+    let error = rejection(&config);
+    assert!(
+        error.contains("led_count is 3") && error.contains("2 entries"),
+        "led_count and the layout have to agree, got: {error}"
+    );
+
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
+fn rgb_toml_needs_both_sections() {
+    let path = write_rgb_case("rgb-half", "[rgb_matrix]\ndriver = \"ws2812\"\n");
+    let config = KeyboardTomlConfig::new_from_toml_path(&path);
+
+    let error = rejection(&config);
+    assert!(
+        error.contains("[ws2812]"),
+        "a chain without a data pin cannot be driven, got: {error}"
+    );
+
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
+}

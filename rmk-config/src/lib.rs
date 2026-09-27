@@ -5,6 +5,8 @@ use config::{Config, File, FileFormat};
 use serde::{Deserialize, de};
 use serde_inline_default::serde_inline_default;
 
+use crate::rgb::{RGB_TOML_FILE, RgbMatrixConfig, Ws2812Config};
+
 /// Event channel default configuration
 const EVENT_DEFAULT_CONFIG: &str = include_str!("default_config/event_default.toml");
 
@@ -23,6 +25,7 @@ pub(crate) mod keymap;
 pub mod layout;
 pub use layout::{STOCK_WIDTHS, layout_blob_from_toml, layout_info_from_toml};
 pub(crate) mod light;
+pub mod rgb;
 pub(crate) mod storage;
 
 /// Protocol-level capacity ceilings for wire-format Vec sizes.
@@ -93,6 +96,10 @@ pub struct KeyboardTomlConfig {
     behavior: Option<BehaviorConfig>,
     /// Light config
     light: Option<LightConfig>,
+    /// Per-key RGB config, from the `rgb.toml` next to the keyboard config
+    rgb_matrix: Option<RgbMatrixConfig>,
+    /// WS2812 chain wiring, from the same `rgb.toml`
+    ws2812: Option<Ws2812Config>,
     /// Storage config
     storage: Option<StorageConfig>,
     /// DFU partition config (embassy-boot)
@@ -142,6 +149,10 @@ impl KeyboardTomlConfig {
         let path_str = path
             .to_str()
             .unwrap_or_else(|| panic!("Config path is not valid UTF-8: {:?}", path));
+        // Per-key RGB lives in its own file so lighting stays in one place; it
+        // is optional, and a keyboard without it never notices.
+        let rgb_toml_path = path.with_file_name(RGB_TOML_FILE);
+        let rgb_toml_path = rgb_toml_path.to_str().unwrap_or(RGB_TOML_FILE);
 
         let mut builder = Config::builder().add_source(File::from_str(EVENT_DEFAULT_CONFIG, FileFormat::Toml));
         if let Some(default_config) = chip_default_config {
@@ -149,6 +160,7 @@ impl KeyboardTomlConfig {
         }
         builder
             .add_source(File::with_name(path_str))
+            .add_source(File::with_name(rgb_toml_path).required(false))
             .build()
             .unwrap_or_else(|e| panic!("Parse {:?} error: {}", path, e))
             .try_deserialize()

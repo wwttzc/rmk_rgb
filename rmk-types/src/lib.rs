@@ -20,6 +20,7 @@
 //! - [`battery`] — `BatteryStatus`, `ChargeState`
 //! - [`ble`] — `BleStatus`, `BleState`
 //! - [`connection`] — `ConnectionType` (USB/BLE), `UsbState`, `ConnectionStatus`
+//! - [`lighting`] — `EffectInfo`: the per-key RGB effect catalogue
 //!
 //! ### Protocol
 //! - [`protocol::vial`] — Vial/Via protocol types
@@ -47,6 +48,7 @@ pub mod fmt;
 pub mod fork;
 pub mod keycode;
 pub mod led_indicator;
+pub mod lighting;
 pub mod modifier;
 pub mod morse;
 pub mod mouse_button;

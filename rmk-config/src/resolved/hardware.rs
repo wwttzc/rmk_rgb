@@ -6,6 +6,7 @@
 pub use crate::board::{BoardConfig, UniBodyConfig};
 pub use crate::chip::{ChipModel, ChipSeries};
 pub use crate::communication::{CommunicationConfig, UsbInfo};
+pub use crate::rgb::{ColorOrder, LedConfig, RgbConfig, RgbDefault, RgbDriver, Ws2812Config};
 use crate::validate_unlock_keys;
 pub use crate::{
     BleConfig, ChipConfig, CommunicationProtocol, DependencyConfig, DfuTomlConfig, DisplayConfig, DisplayDriver,
@@ -50,6 +51,7 @@ pub struct Hardware {
     pub dfu: Option<DfuConfig>,
     pub light: LightConfig,
     pub display: Option<DisplayConfig>,
+    pub rgb: Option<RgbConfig>,
     pub output: Vec<OutputConfig>,
     pub dependency: DependencyConfig,
 }
@@ -123,6 +125,7 @@ impl crate::KeyboardTomlConfig {
         let dfu = self.split_side_dfu(None)?;
         let light = self.get_light_config();
         let display = self.get_display_config();
+        let rgb = self.get_rgb_config()?;
         let output = self.get_output_config()?;
         let dependency = self.get_dependency_config();
         Ok(Hardware {
@@ -134,6 +137,7 @@ impl crate::KeyboardTomlConfig {
             dfu,
             light,
             display,
+            rgb,
             output,
             dependency,
         })

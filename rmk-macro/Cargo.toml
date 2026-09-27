@@ -28,6 +28,8 @@ serde_json = { version = "1", optional = true }
 [features]
 ## Enable hardware watchdog code generation
 watchdog = []
+## Generate the per-key RGB lighting setup from `rgb.toml`
+rgb_matrix = []
 ## Expose the `run_tests!` simulator-scenario macro (rmk test suite only)
 _simulator = ["dep:toml", "dep:serde", "dep:serde_json"]
 ## Base DFU code generation, pulled by `dfu_rp`/`dfu_nrf`
