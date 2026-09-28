@@ -67,6 +67,9 @@ pub struct LightingConfig {
     /// Whether reactive effects answer key releases instead of presses, QMK's
     /// `RGB_MATRIX_KEYRELEASES`.
     pub react_on_keyup: bool,
+    /// Turn the chain off while the host is suspended or gone, QMK's
+    /// `RGB_MATRIX_SLEEP`. A board that keeps its own supply stays lit otherwise.
+    pub sleep: bool,
     /// State the chain starts in, when nothing is stored yet.
     pub default_on: bool,
     pub default_mode: u16,
@@ -133,8 +136,12 @@ impl LightingState {
 
     /// The effect to render now, QMK's
     /// `rgb_current_effect = suspend || !enable ? 0 : mode`.
-    fn current_effect(&self, cfg: &LightingConfig, now_ms: u32) -> Effect {
-        if !self.enabled {
+    ///
+    /// `host_asleep` is [`LightingConfig::sleep`] answering for the host: with
+    /// nobody on the other end the chain goes dark, which matters on a board
+    /// that keeps its own supply and so would otherwise stay lit.
+    fn current_effect(&self, cfg: &LightingConfig, now_ms: u32, host_asleep: bool) -> Effect {
+        if host_asleep || !self.enabled {
             return Effect::Off;
         }
         if cfg.timeout_ms > 0 && now_ms.wrapping_sub(self.last_activity_ms) > cfg.timeout_ms {
@@ -226,7 +233,13 @@ pub async fn render(frame: &mut [Rgb], now_ms: u32) {
     active.effects.hits_buffer.age(delta);
     active.effects.hits = active.effects.hits_buffer;
 
-    let effect = active.state.current_effect(active.cfg, now_ms);
+    // QMK's `RGB_MATRIX_SLEEP`: the host either suspended the bus or is not there
+    // at all. `Suspended` stays routable for remote wakeup, so it needs its own
+    // check rather than `active_transport()` alone.
+    let host_asleep = active.cfg.sleep
+        && (crate::state::current_usb_state() == rmk_types::connection::UsbState::Suspended
+            || crate::state::active_transport().is_none());
+    let effect = active.state.current_effect(active.cfg, now_ms, host_asleep);
     // QMK's `init = effect != rgb_last_effect || enable != rgb_last_enable`. The
     // effect here is the effective one, so a chain that comes back after the idle
     // timeout re-initializes its effect rather than resuming it mid-pattern.
@@ -519,6 +532,7 @@ mod tests {
         val_steps: 16,
         speed_steps: 16,
         react_on_keyup: false,
+        sleep: false,
         default_on: false,
         default_mode: 6,
         default_hue: 0,
@@ -588,9 +602,9 @@ mod tests {
     #[test]
     fn the_effect_follows_the_enable_state_and_the_timeout() {
         let mut state = LightingState::new(&CFG);
-        assert_eq!(state.current_effect(&CFG, 0), Effect::Off, "off by default");
+        assert_eq!(state.current_effect(&CFG, 0, false), Effect::Off, "off by default");
         state.enabled = true;
-        assert_eq!(state.current_effect(&CFG, 0), Effect::Breathing);
+        assert_eq!(state.current_effect(&CFG, 0, false), Effect::Breathing);
 
         // A timeout only matters once one is configured.
         let mut timed = CFG;
@@ -598,8 +612,8 @@ mod tests {
         let mut state = LightingState::new(&timed);
         state.enabled = true;
         state.last_activity_ms = 500;
-        assert_eq!(state.current_effect(&timed, 1400), Effect::Breathing);
-        assert_eq!(state.current_effect(&timed, 1600), Effect::Off, "idle too long");
+        assert_eq!(state.current_effect(&timed, 1400, false), Effect::Breathing);
+        assert_eq!(state.current_effect(&timed, 1600, false), Effect::Off, "idle too long");
     }
 
     /// The effect that comes back after the idle timeout has to run its init
@@ -615,14 +629,25 @@ mod tests {
 
         // A frame during the idle period renders nothing, and that is what the
         // engine records as the last effect.
-        let idle = state.current_effect(&timed, 2000);
+        let idle = state.current_effect(&timed, 2000, false);
         assert_eq!(idle, Effect::Off);
         state.last_effect = Some(idle);
 
         state.last_activity_ms = 1990;
-        let back = state.current_effect(&timed, 2000);
+        let back = state.current_effect(&timed, 2000, false);
         assert_eq!(back, Effect::TypingHeatmap);
         assert_ne!(state.last_effect, Some(back), "the returning effect re-initializes");
+    }
+
+    /// QMK's `RGB_MATRIX_SLEEP`: with the host asleep the chain is dark whatever
+    /// the mode says, and it picks the same effect back up when the host returns.
+    #[test]
+    fn a_sleeping_host_darkens_the_chain() {
+        let mut state = LightingState::new(&CFG);
+        state.enabled = true;
+
+        assert_eq!(state.current_effect(&CFG, 1000, false), Effect::Breathing);
+        assert_eq!(state.current_effect(&CFG, 1000, true), Effect::Off);
     }
 
     /// Every lighting keycode writes the same state the host and `rgb.toml`

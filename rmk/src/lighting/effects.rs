@@ -965,6 +965,7 @@ mod tests {
         val_steps: 16,
         speed_steps: 16,
         react_on_keyup: false,
+        sleep: false,
         default_on: true,
         default_mode: 2,
         default_hue: 0,

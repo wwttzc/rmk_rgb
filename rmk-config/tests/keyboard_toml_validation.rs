@@ -613,7 +613,6 @@ fn rgb_toml_needs_both_sections() {
 fn rgb_toml_names_the_qmk_keys_it_cannot_honour() {
     for key in [
         "led_process_limit = 4",
-        "sleep = true",
         "split_count = [1, 18]",
         "flag_steps = [255, 5, 2, 0]",
     ] {
@@ -634,4 +633,26 @@ fn rgb_toml_names_the_qmk_keys_it_cannot_honour() {
 
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
+}
+
+#[test]
+fn rgb_toml_takes_the_sleep_flag() {
+    let plain = write_rgb_case("rgb-nosleep", CHAIN_TOML);
+    let config = KeyboardTomlConfig::new_from_toml_path(&plain);
+    assert!(
+        !config.hardware().expect("the config resolves").rgb.expect("rgb").sleep,
+        "sleep defaults to false, as QMK's RGB_MATRIX_SLEEP does"
+    );
+    std::fs::remove_dir_all(plain.parent().unwrap()).ok();
+
+    let path = write_rgb_case(
+        "rgb-sleep",
+        &CHAIN_TOML.replace("driver = \"ws2812\"", "driver = \"ws2812\"\nsleep = true"),
+    );
+    let config = KeyboardTomlConfig::new_from_toml_path(&path);
+    assert!(
+        config.hardware().expect("the config resolves").rgb.expect("rgb").sleep,
+        "sleep = true has to reach the resolved configuration"
+    );
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
 }

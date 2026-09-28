@@ -60,6 +60,7 @@ flags = 4
 | `led_count` | length of `layout` | Chain length. Must agree with `[[rgb_matrix.layout]]` when both are given. |
 | `max_brightness` | `255` | QMK's `RGB_MATRIX_MAXIMUM_BRIGHTNESS`: a ceiling on every brightness a keycode or the host sets, and the scale Vial's slider uses. |
 | `timeout` | `0` | QMK's `RGB_MATRIX_TIMEOUT`: milliseconds without a key press after which the chain goes dark. `0` never times out. |
+| `sleep` | `false` | QMK's `RGB_MATRIX_SLEEP`: turn the chain off while the host is suspended or gone. A board with its own supply stays lit otherwise, so this is what darkens it when the PC sleeps or shuts down. |
 | `led_flush_limit` | `16` | QMK's `RGB_MATRIX_LED_FLUSH_LIMIT`: milliseconds between frames. |
 | `react_on_keyup` | `false` | QMK's `RGB_MATRIX_KEYRELEASES`: reactive effects answer releases instead of presses. Needs a reactive effect enabled. |
 | `center_point` | `[112, 32]` | QMK's `RGB_MATRIX_CENTER`: the centre the pinwheel, spiral and beacon effects measure from. It is in the same space as the layout's `x`/`y`, so `[112, 32]` is only right when the box below is QMK's. |
@@ -67,7 +68,7 @@ flags = 4
 
 QMK keys that RMK has no behaviour for are rejected rather than ignored:
 `led_process_limit` (RMK renders the whole chain in one pass, which is what QMK
-does when the limit covers the chain), `sleep`, `split_count` and `flag_steps`.
+does when the limit covers the chain), `split_count` and `flag_steps`.
 
 ## `[rgb_matrix.default]`
 

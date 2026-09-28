@@ -149,6 +149,11 @@ pub struct RgbMatrixConfig {
     /// (`RGB_MATRIX_KEYRELEASES`).
     #[serde(default)]
     pub react_on_keyup: bool,
+    /// Turn the chain off while the host is suspended or gone
+    /// (`RGB_MATRIX_SLEEP`). A board with its own supply keeps the LEDs lit
+    /// otherwise, because nothing else darkens them.
+    #[serde(default)]
+    pub sleep: bool,
     /// Geometric centre of the keyboard, used by pinwheel, spiral and beacon
     /// effects (`RGB_MATRIX_CENTER`). It is in the same space as the layout's
     /// `x`/`y`, so it is only `[112, 32]` for a board that uses QMK's box.
@@ -187,6 +192,7 @@ pub struct RgbConfig {
     pub timeout_ms: u32,
     pub frame_ms: u16,
     pub react_on_keyup: bool,
+    pub sleep: bool,
     pub center: [u8; 2],
     pub hue_steps: u8,
     pub sat_steps: u8,
@@ -297,6 +303,7 @@ impl crate::KeyboardTomlConfig {
             timeout_ms: matrix.timeout,
             frame_ms: matrix.led_flush_limit,
             react_on_keyup: matrix.react_on_keyup,
+            sleep: matrix.sleep,
             center: matrix.center_point,
             hue_steps: matrix.hue_steps,
             sat_steps: matrix.sat_steps,

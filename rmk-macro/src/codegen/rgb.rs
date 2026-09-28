@@ -69,6 +69,7 @@ pub(crate) fn expand_rgb_config(chip: &ChipModel, rgb: &RgbConfig) -> (TokenStre
     let (max_brightness, frame_ms, timeout_ms) = (rgb.max_brightness, rgb.frame_ms, rgb.timeout_ms);
     let (center_x, center_y) = (rgb.center[0], rgb.center[1]);
     let react_on_keyup = rgb.react_on_keyup;
+    let sleep = rgb.sleep;
     let (matrix_rows, matrix_cols) = (rgb.matrix_rows, rgb.matrix_cols);
     let (hue_steps, sat_steps, val_steps, speed_steps) =
         (rgb.hue_steps, rgb.sat_steps, rgb.val_steps, rgb.speed_steps);
@@ -100,6 +101,7 @@ pub(crate) fn expand_rgb_config(chip: &ChipModel, rgb: &RgbConfig) -> (TokenStre
             val_steps: #val_steps,
             speed_steps: #speed_steps,
             react_on_keyup: #react_on_keyup,
+            sleep: #sleep,
             default_on: #default_on,
             default_mode: #default_mode,
             default_hue: #default_hue,
@@ -287,6 +289,7 @@ mod tests {
             timeout_ms: 0,
             frame_ms: 33,
             react_on_keyup: false,
+            sleep: false,
             center: [112, 32],
             hue_steps: 8,
             sat_steps: 16,
